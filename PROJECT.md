@@ -135,7 +135,7 @@ SatPass/
 │  ├─ components/          # reusable UI pieces
 │  ├─ pages/               # one component per route
 │  ├─ data/
-│  │  └─ sample-gp.json    # offline snapshot of about 10 satellites, used in A1 and in tests
+│  │  └─ sample-gp.json    # offline snapshot of 20 satellites (stations + Hubble), used in A1 and in tests
 │  ├─ App.jsx
 │  └─ main.jsx
 ├─ .env.example
@@ -176,7 +176,8 @@ Each component has one job. Components that only display data receive it through
 ### Setup (before A1)
 - [x] Choose the idea, check that the API works and allows browser requests
 - [x] Submit the topic in the Google Form
-- [ ] Create the GitLab repository and scaffold it with `npm create vite@latest` (React template)
+- [x] Scaffold with `npm create vite@latest` (React template) and `git init`
+- [ ] Create the GitHub repository and push `main`
 - [x] Save `src/data/sample-gp.json`, a snapshot of the `stations` group plus Hubble
 
 ### A1 (Week 10): React fundamentals, plus everything from weeks 1–9
@@ -224,7 +225,7 @@ Each component has one job. Components that only display data receive it through
 - [ ] Vitest unit tests for all of `src/lib/` (see §9)
 - [ ] Testing Library component tests for `LocationForm` validation, `PassFilters` and `ErrorMessage` Retry
 - [ ] ESLint and Prettier set up, with no lint errors; scripts `lint`, `format`, `test`
-- [ ] Git: feature branch, then a merge request, then a review from a classmate, then the review comments addressed, then merge
+- [ ] Git: feature branch, then a pull request, then a review from a classmate, then the review comments addressed, then merge
 - [ ] `.env` with values read from `import.meta.env`, and `.env.example` committed:
   ```
   VITE_CELESTRAK_BASE_URL=https://celestrak.org/NORAD/elements/gp.php
@@ -240,7 +241,7 @@ Each component has one job. Components that only display data receive it through
 - [ ] Lighthouse on the deployed URL: Accessibility ≥ 90 and Performance ≥ 80, with screenshots in the README
 - [ ] README: description, screenshots, live URL, how to run the app, how to run the tests
 
-**Done when:** a public Vercel URL works on a phone, the tests pass, the merge request is merged, and the Lighthouse scores are recorded.
+**Done when:** a public Vercel URL works on a phone, the tests pass, the pull request is merged, and the Lighthouse scores are recorded.
 
 ### Week 15: Endterm & final project
 - Demo (about 5 minutes): set the location, show tonight's visible ISS pass, open its detail page with the live map, apply filters, show the watchlist, show the tests and the deployed URL.
