@@ -175,9 +175,9 @@ Each component has one job. Components that only display data receive it through
 
 ### Setup (before A1)
 - [x] Choose the idea, check that the API works and allows browser requests
-- [ ] Submit the topic in the Google Form
+- [x] Submit the topic in the Google Form
 - [ ] Create the GitLab repository and scaffold it with `npm create vite@latest` (React template)
-- [ ] Save `src/data/sample-gp.json`, a snapshot of the `stations` group plus Hubble
+- [x] Save `src/data/sample-gp.json`, a snapshot of the `stations` group plus Hubble
 
 ### A1 (Week 10): React fundamentals, plus everything from weeks 1–9
 **Goal:** a working app. Passes are computed for one fixed location (Almaty), starting from the bundled snapshot, with a button to load live data.
