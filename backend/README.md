@@ -9,12 +9,11 @@ Data is kept in memory. Every restart reloads the seed: the 20 satellites in `..
 ```bash
 cd backend
 python -m venv .venv
-.venv\Scripts\activate          # Windows (macOS/Linux: source .venv/bin/activate)
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+.venv\Scripts\python -m pip install -r requirements.txt     # macOS/Linux: .venv/bin/python
+.venv\Scripts\python -m uvicorn app.main:app --reload
 ```
 
-Open http://127.0.0.1:8000/docs (Swagger UI). Run the automated tests with `pytest`.
+Open http://127.0.0.1:8000/docs (Swagger UI). Run the automated tests with `.venv\Scripts\python -m pytest`.
 
 ## Structure
 
