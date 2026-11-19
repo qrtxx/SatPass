@@ -6,27 +6,13 @@ Data is stored in PostgreSQL through SQLAlchemy, and the schema is built by Alem
 
 ## Run
 
-You need PostgreSQL 14 or newer. Create a database user and two databases (one for the app, one the tests can wipe). In `psql -U postgres`:
+Step-by-step setup (PostgreSQL, `.env`, migrations, server, tests, troubleshooting) is in the [main README](../README.md#how-to-run-windows). In short, from `backend/` once PostgreSQL and `.env` are set up:
 
-```sql
-CREATE ROLE satpass LOGIN PASSWORD 'choose-a-password';
-CREATE DATABASE satpass OWNER satpass;
-CREATE DATABASE satpass_test OWNER satpass;
-```
-
-Then, in `backend/`:
-
-```bash
-python -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt     # macOS/Linux: .venv/bin/python
-copy .env.example .env                                     # then put your password into .env
+```powershell
 .venv\Scripts\python -m alembic upgrade head               # create the tables and load the seed data
-.venv\Scripts\python -m uvicorn app.main:app --reload
+.venv\Scripts\python -m uvicorn app.main:app --reload       # then open http://127.0.0.1:8000/docs
+.venv\Scripts\python -m pytest                              # tests use TEST_DATABASE_URL
 ```
-
-Open http://127.0.0.1:8000/docs (Swagger UI). Run the automated tests with `.venv\Scripts\python -m pytest` (they use `TEST_DATABASE_URL`).
-
-To start over from the seed data: `alembic downgrade base` then `alembic upgrade head`.
 
 ## Configuration
 
