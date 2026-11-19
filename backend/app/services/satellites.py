@@ -2,9 +2,12 @@
 
 from datetime import datetime, timedelta, timezone
 
-from app import store
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+
 from app.errors import Conflict, NotFound, RuleViolation
-from app.schemas import Position, as_utc, Satellite, SatelliteCreate, SatelliteUpdate
+from app.models import SatelliteModel
+from app.schemas import Position, Satellite, SatelliteCreate, SatelliteUpdate, as_utc
 from app.services import orbit
 
 # Elements get less accurate with age: warn after 3 days, refuse to predict after 30.
@@ -13,26 +16,28 @@ MAX_ORBIT_AGE_DAYS = 30
 EPOCH_FUTURE_TOLERANCE = timedelta(days=1)
 
 
-def orbit_age_days(sat: Satellite, at: datetime) -> float:
+def orbit_age_days(sat: SatelliteModel, at: datetime) -> float:
     return abs((at - sat.EPOCH).total_seconds()) / 86400
 
 
-def list_satellites(search: str | None, limit: int, offset: int) -> list[Satellite]:
-    sats = sorted(store.satellites.values(), key=lambda s: s.OBJECT_NAME)
+def list_satellites(db: Session, search: str | None, limit: int, offset: int) -> list[SatelliteModel]:
+    query = select(SatelliteModel).order_by(SatelliteModel.OBJECT_NAME).limit(limit).offset(offset)
     if search:
-        needle = search.casefold()
-        sats = [s for s in sats if needle in s.OBJECT_NAME.casefold() or needle == str(s.NORAD_CAT_ID)]
-    return sats[offset : offset + limit]
+        match = SatelliteModel.OBJECT_NAME.icontains(search, autoescape=True)
+        if search.isdigit() and len(search) <= 9:
+            match = or_(match, SatelliteModel.NORAD_CAT_ID == int(search))
+        query = query.where(match)
+    return list(db.scalars(query))
 
 
-def get_satellite(norad_id: int) -> Satellite:
-    sat = store.satellites.get(norad_id)
+def get_satellite(db: Session, norad_id: int) -> SatelliteModel:
+    sat = db.get(SatelliteModel, norad_id)
     if sat is None:
         raise NotFound("satellite_not_found", f"No satellite with NORAD ID {norad_id}")
     return sat
 
 
-def _check_elements(sat: Satellite) -> None:
+def _check_elements(sat: SatelliteCreate) -> None:
     if sat.EPOCH > datetime.now(timezone.utc) + EPOCH_FUTURE_TOLERANCE:
         raise RuleViolation("epoch_in_future", "EPOCH cannot be more than 1 day in the future")
     rec = orbit.build_satrec(sat)
@@ -41,17 +46,18 @@ def _check_elements(sat: Satellite) -> None:
         raise RuleViolation("invalid_orbit", "These orbital elements do not describe a valid Earth orbit")
 
 
-def create_satellite(data: SatelliteCreate) -> Satellite:
-    if data.NORAD_CAT_ID in store.satellites:
+def create_satellite(db: Session, data: SatelliteCreate) -> SatelliteModel:
+    if db.get(SatelliteModel, data.NORAD_CAT_ID):
         raise Conflict("satellite_exists", f"Satellite {data.NORAD_CAT_ID} is already in the catalog")
-    sat = Satellite.model_validate(data.model_dump())
-    _check_elements(sat)
-    store.satellites[sat.NORAD_CAT_ID] = sat
+    _check_elements(data)
+    sat = SatelliteModel(**data.model_dump())
+    db.add(sat)
+    db.commit()
     return sat
 
 
-def update_satellite(norad_id: int, patch: SatelliteUpdate) -> Satellite:
-    current = get_satellite(norad_id)
+def update_satellite(db: Session, norad_id: int, patch: SatelliteUpdate) -> SatelliteModel:
+    current = get_satellite(db, norad_id)
     changes = patch.model_dump(exclude_unset=True, exclude_none=True)
     if not changes:
         raise RuleViolation("empty_update", "Send at least one field to change")
@@ -60,23 +66,22 @@ def update_satellite(norad_id: int, patch: SatelliteUpdate) -> Satellite:
         raise RuleViolation("epoch_required", "Changing orbital elements requires a new EPOCH")
     if "EPOCH" in changes and changes["EPOCH"] <= current.EPOCH:
         raise Conflict("outdated_elements", f"New EPOCH must be later than the current one ({current.EPOCH.isoformat()})")
-    updated = current.model_copy(update=changes)
-    _check_elements(updated)
-    store.satellites[norad_id] = updated
-    return updated
+    # Check the merged element set before touching the row, so a rejected update leaves it unchanged.
+    _check_elements(Satellite.model_validate(current).model_copy(update=changes))
+    for field, value in changes.items():
+        setattr(current, field, value)
+    db.commit()
+    return current
 
 
-def delete_satellite(norad_id: int) -> None:
-    get_satellite(norad_id)
-    del store.satellites[norad_id]
-    # Keep watchlists consistent: nobody can watch a satellite that no longer exists.
-    for observer in store.observers.values():
-        if norad_id in observer.watchlist:
-            observer.watchlist.remove(norad_id)
+def delete_satellite(db: Session, norad_id: int) -> None:
+    # Watchlist entries for it are removed by ON DELETE CASCADE, so no observer watches a missing satellite.
+    db.delete(get_satellite(db, norad_id))
+    db.commit()
 
 
-def get_position(norad_id: int, at: datetime | None) -> Position:
-    sat = get_satellite(norad_id)
+def get_position(db: Session, norad_id: int, at: datetime | None) -> Position:
+    sat = get_satellite(db, norad_id)
     at = as_utc(at) if at else datetime.now(timezone.utc)
     age = orbit_age_days(sat, at)
     if age > MAX_ORBIT_AGE_DAYS:

@@ -2,27 +2,68 @@
 
 FastAPI backend for SatPass: it predicts when satellites (ISS, Hubble, Chinese space station, …) pass over an observer, using real CelesTrak orbital elements and the SGP4 orbit model.
 
-Data is kept in memory. Every restart reloads the seed: the 20 satellites in `../src/data/sample-gp.json` and one observer, **Almaty (id 1)**, watching the ISS.
+Data is stored in PostgreSQL through SQLAlchemy, and the schema is built by Alembic migrations. The migrations also load seed data: the 20 satellites in `../src/data/sample-gp.json` and one observer, **Almaty (id 1)**, watching the ISS.
 
 ## Run
 
+You need PostgreSQL 14 or newer. Create a database user and two databases (one for the app, one the tests can wipe). In `psql -U postgres`:
+
+```sql
+CREATE ROLE satpass LOGIN PASSWORD 'choose-a-password';
+CREATE DATABASE satpass OWNER satpass;
+CREATE DATABASE satpass_test OWNER satpass;
+```
+
+Then, in `backend/`:
+
 ```bash
-cd backend
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt     # macOS/Linux: .venv/bin/python
+copy .env.example .env                                     # then put your password into .env
+.venv\Scripts\python -m alembic upgrade head               # create the tables and load the seed data
 .venv\Scripts\python -m uvicorn app.main:app --reload
 ```
 
-Open http://127.0.0.1:8000/docs (Swagger UI). Run the automated tests with `.venv\Scripts\python -m pytest`.
+Open http://127.0.0.1:8000/docs (Swagger UI). Run the automated tests with `.venv\Scripts\python -m pytest` (they use `TEST_DATABASE_URL`).
+
+To start over from the seed data: `alembic downgrade base` then `alembic upgrade head`.
+
+## Configuration
+
+| Variable | Used by | Example |
+|---|---|---|
+| `DATABASE_URL` | the app and Alembic | `postgresql+psycopg://satpass:secret@localhost:5432/satpass` |
+| `TEST_DATABASE_URL` | pytest only | `postgresql+psycopg://satpass:secret@localhost:5432/satpass_test` |
+
+They are read from the environment, or from `backend/.env` (git-ignored). `.env.example` is the template.
+
+## Database
+
+```
+satellites 1 ──< watchlist_entries >── 1 observers
+```
+
+| Table | Columns | Constraints |
+|---|---|---|
+| `satellites` | `norad_cat_id` (PK, the NORAD catalog number), `object_name`, `epoch` (timestamptz), 9 orbital elements (double precision) | CHECK ranges for mean motion, eccentricity, inclination and the angles |
+| `observers` | `id` (serial PK), `name`, `latitude`, `longitude`, `elevation_m`, `min_elevation_deg`, `created_at` | CHECK coordinate ranges, non-blank name; unique index on `lower(name)` |
+| `watchlist_entries` | `observer_id` (FK), `norad_id` (FK), `added_at` | PK (`observer_id`, `norad_id`) so a satellite is watched once per observer; both FKs `ON DELETE CASCADE` |
+
+Relationships: one observer has many watchlist entries, and one satellite appears in many watchlist entries. Together they form a many-to-many between observers and satellites. Deleting an observer deletes its watchlist; deleting a satellite removes it from every watchlist.
+
+Migrations are in `alembic/versions/`: the first creates the tables, the second loads the seed data.
+
+The API checks every rule first and returns a readable error. The database constraints are a second line of defence; if one fires anyway, the API answers 409 `integrity_error` instead of crashing.
 
 ## Structure
 
 ```
 app/
-├─ main.py              app, routers, DomainError → JSON handler
+├─ main.py              app, routers, error → JSON handlers
+├─ db.py                engine, session per request (DATABASE_URL)
+├─ models.py            SQLAlchemy tables and relationships
 ├─ schemas.py           Pydantic request/response models
 ├─ errors.py            NotFound (404), Conflict (409), RuleViolation (422)
-├─ store.py             in-memory dicts + seed data
 ├─ routers/             HTTP only: parameters, status codes, docs
 │  ├─ satellites.py
 │  └─ observers.py
@@ -30,7 +71,8 @@ app/
    ├─ orbit.py          SGP4, look angles, ground point, pass search (pure math)
    ├─ satellites.py     catalog rules
    └─ observers.py      observers, watchlist, pass prediction
-tests/                  pytest: orbit math + every endpoint
+alembic/versions/       migrations: schema, then seed data
+tests/                  pytest: orbit math, every endpoint, database constraints
 ```
 
 ## Workflows and business rules
@@ -45,7 +87,7 @@ Errors from business rules look like `{"detail": "Satellite 25544 is already in 
 
 ## Swagger test checklist
 
-Restart the server first so you start from the seed data. Each row is a request in `/docs` → "Try it out".
+Reset to the seed data first (`alembic downgrade base`, then `alembic upgrade head`). Each row is a request in `/docs` → "Try it out".
 
 | # | Request | Expected |
 |---|---|---|
@@ -69,5 +111,6 @@ Restart the server first so you start from the seed data. Each row is a request 
 | 18 | `DELETE /satellites/48274`, then `GET /observers/1` | 204; watchlist no longer has 48274 |
 | 19 | `DELETE /observers/1/watchlist/48274` | 404 `not_watched` |
 | 20 | `DELETE /observers/2`, then `GET /observers/2` | 204, then 404 |
+| 21 | `POST /observers` with a new name, stop the server (Ctrl+C), start it again, `GET /observers` | The new observer is still there |
 
 The first ISS pass in row 15 rises at 15:59:26 UTC in the SW and peaks at 61.5°. This matches satellite.js on the same data.

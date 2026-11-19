@@ -1,9 +1,13 @@
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
-from app import store
+from app.schemas import Satellite
 from app.services import orbit
+
+SNAPSHOT = Path(__file__).resolve().parents[2] / "src" / "data" / "sample-gp.json"
 
 HOUR = 3600
 
@@ -47,8 +51,8 @@ def test_no_passes_and_min_elevation():
 
 def test_iss_over_almaty_matches_satellite_js():
     # Reference values from satellite.js 7.1 on the same snapshot.
-    store.reset()
-    rec = orbit.build_satrec(store.satellites[store.ISS_ID])
+    iss = next(s for s in json.loads(SNAPSHOT.read_text()) if s["NORAD_CAT_ID"] == 25544)
+    rec = orbit.build_satrec(Satellite.model_validate(iss))
     look = orbit.observer_view(rec, 43.2389, 76.8897, 0.8)
     t0 = datetime(2026, 11, 5, tzinfo=timezone.utc).timestamp()
     passes = orbit.find_passes(lambda t: look(t)[1], t0, t0 + 24 * HOUR)

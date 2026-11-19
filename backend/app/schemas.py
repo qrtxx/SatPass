@@ -84,6 +84,8 @@ class SatelliteUpdate(BaseModel):
 
 
 class Satellite(SatelliteCreate):
+    model_config = ConfigDict(from_attributes=True)
+
     @computed_field
     @property
     def period_minutes(self) -> float:
@@ -126,6 +128,8 @@ class ObserverUpdate(BaseModel):
 
 
 class Observer(ObserverCreate):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     watchlist: list[int] = Field(default_factory=list, description="NORAD IDs of watched satellites")
 

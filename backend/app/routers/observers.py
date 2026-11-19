@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Path, Query, status
 
+from app.db import DbSession
 from app.schemas import ErrorResponse, Observer, ObserverCreate, ObserverUpdate, PassReport, Satellite, WatchlistAdd
 from app.services import observers as service
 
@@ -15,33 +16,33 @@ ObserverId = Annotated[int, Path(gt=0)]
 
 
 @router.get("", response_model=list[Observer])
-def list_observers():
-    return service.list_observers()
+def list_observers(db: DbSession):
+    return service.list_observers(db)
 
 
 @router.post("", response_model=Observer, status_code=status.HTTP_201_CREATED, responses={**CONFLICT, **RULE})
-def create_observer(data: ObserverCreate):
-    return service.create_observer(data)
+def create_observer(db: DbSession, data: ObserverCreate):
+    return service.create_observer(db, data)
 
 
 @router.get("/{observer_id}", response_model=Observer, responses=NOT_FOUND)
-def get_observer(observer_id: ObserverId):
-    return service.get_observer(observer_id)
+def get_observer(db: DbSession, observer_id: ObserverId):
+    return service.get_observer(db, observer_id)
 
 
 @router.patch("/{observer_id}", response_model=Observer, responses={**NOT_FOUND, **CONFLICT, **RULE})
-def update_observer(data: ObserverUpdate, observer_id: ObserverId):
-    return service.update_observer(observer_id, data)
+def update_observer(db: DbSession, data: ObserverUpdate, observer_id: ObserverId):
+    return service.update_observer(db, observer_id, data)
 
 
 @router.delete("/{observer_id}", status_code=status.HTTP_204_NO_CONTENT, responses=NOT_FOUND)
-def delete_observer(observer_id: ObserverId):
-    service.delete_observer(observer_id)
+def delete_observer(db: DbSession, observer_id: ObserverId):
+    service.delete_observer(db, observer_id)
 
 
 @router.get("/{observer_id}/watchlist", response_model=list[Satellite], responses=NOT_FOUND)
-def get_watchlist(observer_id: ObserverId):
-    return service.get_watchlist(observer_id)
+def get_watchlist(db: DbSession, observer_id: ObserverId):
+    return service.get_watchlist(db, observer_id)
 
 
 @router.post(
@@ -51,8 +52,8 @@ def get_watchlist(observer_id: ObserverId):
     summary="Watch a satellite",
     responses={**NOT_FOUND, 409: {"model": ErrorResponse, "description": "Already watched, or the watchlist is full"}},
 )
-def add_to_watchlist(data: WatchlistAdd, observer_id: ObserverId):
-    return service.add_to_watchlist(observer_id, data.norad_id)
+def add_to_watchlist(db: DbSession, data: WatchlistAdd, observer_id: ObserverId):
+    return service.add_to_watchlist(db, observer_id, data.norad_id)
 
 
 @router.delete(
@@ -61,8 +62,8 @@ def add_to_watchlist(data: WatchlistAdd, observer_id: ObserverId):
     summary="Stop watching a satellite",
     responses=NOT_FOUND,
 )
-def remove_from_watchlist(observer_id: ObserverId, norad_id: Annotated[int, Path(gt=0)]):
-    service.remove_from_watchlist(observer_id, norad_id)
+def remove_from_watchlist(db: DbSession, observer_id: ObserverId, norad_id: Annotated[int, Path(gt=0)]):
+    service.remove_from_watchlist(db, observer_id, norad_id)
 
 
 @router.get(
@@ -72,9 +73,10 @@ def remove_from_watchlist(observer_id: ObserverId, norad_id: Annotated[int, Path
     responses={**NOT_FOUND, 409: {"model": ErrorResponse, "description": "The watchlist is empty"}},
 )
 def get_passes(
+    db: DbSession,
     observer_id: ObserverId,
     hours: int = Query(24, ge=1, le=72, description="How far ahead to look"),
     min_elevation: float | None = Query(None, ge=0, le=90, description="Lowest peak height; defaults to the observer's setting"),
     start: datetime | None = Query(None, description="UTC start time, defaults to now"),
 ):
-    return service.predict_passes(observer_id, start, hours, min_elevation)
+    return service.predict_passes(db, observer_id, start, hours, min_elevation)

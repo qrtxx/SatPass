@@ -1,8 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
-from app import store
 from app.main import app
+from app.models import ObserverModel, WatchlistEntry
 from app.schemas import ISS_EXAMPLE
 
 client = TestClient(app)
@@ -11,8 +12,8 @@ NEW_SAT = {**ISS_EXAMPLE, "OBJECT_NAME": "TEST SAT", "NORAD_CAT_ID": 99999}
 
 
 @pytest.fixture(autouse=True)
-def fresh_store():
-    store.reset()
+def fresh_data(db):
+    pass  # the db fixture (conftest.py) gives every test the seed data in a rolled-back transaction
 
 
 # --- Satellites ---------------------------------------------------------------
@@ -108,9 +109,10 @@ def test_watchlist_flow():
 
 
 def test_watchlist_is_capped():
-    for norad_id in list(store.satellites)[1:10]:
+    ids = [s["NORAD_CAT_ID"] for s in client.get("/satellites").json() if s["NORAD_CAT_ID"] != 25544]
+    for norad_id in ids[:9]:
         assert client.post("/observers/1/watchlist", json={"norad_id": norad_id}).status_code == 201
-    r = client.post("/observers/1/watchlist", json={"norad_id": list(store.satellites)[10]})
+    r = client.post("/observers/1/watchlist", json={"norad_id": ids[9]})
     assert r.status_code == 409 and r.json()["code"] == "watchlist_full"
 
 
@@ -144,3 +146,30 @@ def test_passes_errors_and_warnings():
     client.delete("/observers/1/watchlist/25544")
     r = client.get("/observers/1/passes")
     assert r.status_code == 409 and r.json()["code"] == "empty_watchlist"
+
+
+# --- Database integrity ---------------------------------------------------------
+
+
+def test_data_is_saved_in_the_database(db):
+    client.post("/observers", json={"name": "Astana", "latitude": 51.17, "longitude": 71.45})
+    client.post("/observers/1/watchlist", json={"norad_id": 48274})
+    db.expire_all()  # forget cached objects and read the rows back
+    assert db.query(ObserverModel).filter_by(name="Astana").one().latitude == 51.17
+    assert db.get(WatchlistEntry, (1, 48274)) is not None
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        ObserverModel(name="Pole", latitude=95, longitude=0),  # CHECK latitude range
+        ObserverModel(name="ALMATY", latitude=0, longitude=0),  # unique lower(name)
+        WatchlistEntry(observer_id=1, norad_id=1),  # foreign key: no satellite 1
+        WatchlistEntry(observer_id=1, norad_id=25544),  # primary key: already watched
+    ],
+)
+def test_database_constraints_reject_bad_rows(db, row):
+    db.add(row)
+    with pytest.raises(IntegrityError):
+        db.flush()
+    db.rollback()
