@@ -4,6 +4,8 @@ SatPass predicts when satellites such as the ISS, Hubble and the Chinese space s
 
 The backend is a REST API built with **FastAPI**, **PostgreSQL**, **SQLAlchemy** and **Alembic**. It is in [`backend/`](backend/). See [`backend/README.md`](backend/README.md) for the endpoints, business rules, database schema and a Swagger test checklist.
 
+A minimal **React** (Vite) UI in [`src/`](src/) uses that API. It has three tabs: **Passes** (predict passes for the chosen location's watchlist), **Satellites** (search, watch/unwatch, current position, delete) and **Locations** (add, edit, delete). Errors from the API, such as validation errors or a duplicate name, are shown on the page.
+
 ## How to run (Windows)
 
 ### 1. Install the prerequisites
@@ -14,6 +16,7 @@ The backend is a REST API built with **FastAPI**, **PostgreSQL**, **SQLAlchemy**
   winget install PostgreSQL.PostgreSQL.17
   ```
   Write down the password you choose for the `postgres` user.
+- **Node.js 20 or newer** (for the UI): https://nodejs.org/
 - **Git**
 
 ### 2. Get the code
@@ -76,6 +79,19 @@ This runs the migrations in `backend/alembic/versions/`. They create the tables 
 
 Open **http://127.0.0.1:8000/docs** to try every endpoint in Swagger UI. Stop the server with `Ctrl+C`. Your data stays in PostgreSQL, so it is still there the next time you start the server.
 
+### 8. Start the UI
+
+Keep the server from step 7 running. In a second terminal, from the `SatPass` folder (not `backend`):
+
+```powershell
+npm install
+npm run dev
+```
+
+Open **http://localhost:5173**. The UI sends its requests to `/api/...`, and Vite forwards them to the API on port 8000, so no CORS setup is needed. If the API runs on another port, start the UI with `$env:API_URL="http://127.0.0.1:8001"; npm run dev`.
+
+The sample orbit data is from 4 Nov 2026. In the Passes tab, set the start to around 5 Nov 2026 (for example 2026-11-05 05:00 in Almaty) to see the ISS passes.
+
 ### Run the tests
 
 ```powershell
@@ -105,4 +121,5 @@ The steps are the same, with these differences:
 | `password authentication failed for user "satpass"` | The password in `.env` doesn't match the one from step 3. |
 | `connection refused` / `Connection timed out` | PostgreSQL isn't running. In PowerShell as admin: `Start-Service postgresql-x64-17` |
 | `relation "satellites" does not exist` | The tables weren't created; do step 6. |
+| UI shows `Request failed (500). Is the backend running on port 8000?` | The API isn't running; do step 7 in another terminal. |
 | `Address already in use` / port 8000 busy | Start on another port: add `--port 8001` and open http://127.0.0.1:8001/docs |
