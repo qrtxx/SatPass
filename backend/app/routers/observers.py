@@ -13,6 +13,8 @@ NOT_FOUND = {404: {"model": ErrorResponse, "description": "Observer (or satellit
 CONFLICT = {409: {"model": ErrorResponse, "description": "Conflicts with the current state"}}
 RULE = {422: {"model": ErrorResponse, "description": "Validation or business-rule error"}}
 ObserverId = Annotated[int, Path(gt=0)]
+# Each satellite costs ~1,500 SGP4 runs per day of predictions, like a watchlist entry.
+MAX_SELECTED = 20
 
 
 @router.get("", response_model=list[Observer])
@@ -69,7 +71,7 @@ def remove_from_watchlist(db: DbSession, observer_id: ObserverId, norad_id: Anno
 @router.get(
     "/{observer_id}/passes",
     response_model=PassReport,
-    summary="Predict passes of the watched satellites over this observer",
+    summary="Predict passes over this observer, for the watchlist or for chosen satellites",
     responses={**NOT_FOUND, 409: {"model": ErrorResponse, "description": "The watchlist is empty"}},
 )
 def get_passes(
@@ -78,5 +80,8 @@ def get_passes(
     hours: int = Query(24, ge=1, le=72, description="How far ahead to look"),
     min_elevation: float | None = Query(None, ge=0, le=90, description="Lowest peak height; defaults to the observer's setting"),
     start: datetime | None = Query(None, description="UTC start time, defaults to now"),
+    norad_id: list[int] | None = Query(
+        None, max_length=MAX_SELECTED, description=f"Satellites to predict for (repeat the parameter, up to {MAX_SELECTED}); defaults to the watchlist"
+    ),
 ):
-    return service.predict_passes(db, observer_id, start, hours, min_elevation)
+    return service.predict_passes(db, observer_id, start, hours, min_elevation, norad_id)

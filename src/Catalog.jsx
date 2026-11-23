@@ -1,154 +1,170 @@
 import { useEffect, useState } from 'react'
-import { api, formatTime } from './api.js'
+import { api, apiPage, daysSince, formatCount, MAX_SELECTED } from './api.js'
 
+const PAGE = 50
 // CelesTrak groups the API accepts; "active" is every working satellite (~17k).
 const GROUPS = ['stations', 'visual', 'active', 'weather', 'science', 'gps-ops', 'galileo', 'starlink']
-const count = (n) => n.toLocaleString()
 
-export default function Catalog({ observer, onChange }) {
+export default function Catalog({ observer, selected, onToggle, onClear, onPredict, onOpen, version }) {
+  const [input, setInput] = useState('')
+  const [query, setQuery] = useState('') // the search actually applied
+  const [page, setPage] = useState(0)
+  const [result, setResult] = useState(null) // { items, total }
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
   const [group, setGroup] = useState('stations')
   const [importing, setImporting] = useState(false)
-  const [search, setSearch] = useState('')
-  const [satellites, setSatellites] = useState([])
-  const [message, setMessage] = useState('')
-  const [error, setError] = useState('')
-
-  const load = (query) => api(`/satellites${query ? `?${new URLSearchParams({ search: query })}` : ''}`).then(setSatellites)
+  const [reloads, setReloads] = useState(0)
 
   useEffect(() => {
-    load('').catch((e) => setError(e.message))
-  }, [])
+    let current = true
+    const params = new URLSearchParams({ limit: PAGE, offset: page * PAGE })
+    if (query) params.set('search', query)
+    apiPage(`/satellites?${params}`).then(
+      (r) => current && (setResult(r), setError('')),
+      (e) => current && setError(e.message),
+    )
+    return () => {
+      current = false // ignore answers to an older search or page
+    }
+  }, [query, page, version, reloads])
 
-  // Runs one request and shows its error, if any, above the table.
-  async function act(request) {
+  async function importGroup(event) {
+    event.preventDefault()
+    setImporting(true)
     setError('')
     setMessage('')
     try {
-      await request()
+      const r = await api('/satellites/import', { method: 'POST', body: { group } })
+      setMessage(
+        `Updated '${r.group}' from CelesTrak: ${formatCount(r.added)} added, ${formatCount(r.updated)} updated, ` +
+          `${formatCount(r.unchanged)} unchanged, ${formatCount(r.skipped)} skipped.`,
+      )
+      setReloads((n) => n + 1)
     } catch (e) {
       setError(e.message)
+    } finally {
+      setImporting(false)
     }
   }
 
   const watched = new Set(observer?.watchlist)
-  const watchlistUrl = observer && `/observers/${observer.id}/watchlist`
-
-  const watch = (id) =>
-    act(async () => {
-      await api(watchlistUrl, { method: 'POST', body: { norad_id: id } })
-      await onChange()
-    })
-
-  const unwatch = (id) =>
-    act(async () => {
-      await api(`${watchlistUrl}/${id}`, { method: 'DELETE' })
-      await onChange()
-    })
-
-  const showPosition = (s) =>
-    act(async () => {
-      const p = await api(`/satellites/${s.NORAD_CAT_ID}/position`)
-      setMessage(
-        `${s.OBJECT_NAME} is now above ${p.latitude.toFixed(2)}°, ${p.longitude.toFixed(2)}°, ` +
-          `${p.altitude_km.toFixed(0)} km up (orbit data ${p.orbit_age_days.toFixed(1)} days old).`,
-      )
-    })
-
-  const remove = (s) =>
-    confirm(`Delete ${s.OBJECT_NAME}? It is also removed from every watchlist.`) &&
-    act(async () => {
-      await api(`/satellites/${s.NORAD_CAT_ID}`, { method: 'DELETE' })
-      await load(search)
-      await onChange()
-    })
-
-  const importGroup = () =>
-    act(async () => {
-      setImporting(true)
-      try {
-        const r = await api('/satellites/import', { method: 'POST', body: { group } })
-        setMessage(
-          `Updated '${r.group}' from CelesTrak: ${count(r.added)} added, ${count(r.updated)} updated, ` +
-            `${count(r.unchanged)} unchanged, ${count(r.skipped)} skipped.`,
-        )
-        await load(search)
-      } finally {
-        setImporting(false)
-      }
-    })
+  const full = selected.size >= MAX_SELECTED
+  const from = page * PAGE + 1
+  const to = result ? Math.min((page + 1) * PAGE, result.total) : 0
 
   return (
-    <section>
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault()
-          importGroup()
-        }}
-      >
-        <label>
-          Satellite group
-          <select value={group} onChange={(e) => setGroup(e.target.value)}>
-            {GROUPS.map((g) => (
-              <option key={g}>{g}</option>
-            ))}
-          </select>
-        </label>
-        <button disabled={importing}>{importing ? 'Downloading… this can take a minute' : 'Update orbit data'}</button>
-      </form>
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault()
-          act(() => load(search))
-        }}
-      >
-        <label>
-          Name or NORAD ID
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="e.g. iss, hst, 25544" />
-        </label>
-        <button>Search</button>
-      </form>
-      {message && <p>{message}</p>}
-      {error && <p className="error">{error}</p>}
-      <div className="scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>NORAD ID</th>
-              <th>Orbit data from</th>
-              <th>Orbit</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {satellites.map((s) => {
-              const id = s.NORAD_CAT_ID
-              return (
-                <tr key={id}>
-                  <td>{s.OBJECT_NAME}</td>
-                  <td>{id}</td>
-                  <td>{formatTime(s.EPOCH)}</td>
-                  <td>{s.period_minutes.toFixed(0)} min</td>
-                  <td className="actions">
-                    {watched.has(id) ? (
-                      <button onClick={() => unwatch(id)}>Unwatch</button>
-                    ) : (
-                      <button disabled={!observer} onClick={() => watch(id)}>
-                        Watch
-                      </button>
-                    )}
-                    <button onClick={() => showPosition(s)}>Where now?</button>
-                    <button onClick={() => remove(s)}>Delete</button>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+    <section className="card">
+      <div className="toolbar">
+        <form
+          className="row"
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setQuery(input.trim())
+            setPage(0)
+          }}
+        >
+          <label>
+            Name or NORAD ID
+            <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="e.g. iss, starlink, 25544" />
+          </label>
+          <button>Search</button>
+        </form>
+        <form className="row" onSubmit={importGroup}>
+          <label>
+            Satellite group
+            <select value={group} onChange={(e) => setGroup(e.target.value)}>
+              {GROUPS.map((g) => (
+                <option key={g}>{g}</option>
+              ))}
+            </select>
+          </label>
+          <button disabled={importing}>{importing ? 'Downloading… this can take a minute' : 'Update orbit data'}</button>
+        </form>
       </div>
-      {satellites.length === 0 && <p>No satellites found.</p>}
+
+      <div className="selection-bar" aria-live="polite">
+        <span>
+          <b>{selected.size}</b> selected
+          {full && <span className="muted"> · up to {MAX_SELECTED} satellites at a time</span>}
+        </span>
+        <button className="primary" disabled={selected.size === 0} onClick={onPredict}>
+          Predict passes
+        </button>
+        <button disabled={selected.size === 0} onClick={onClear}>
+          Clear
+        </button>
+      </div>
+
+      {message && <p className="notice">{message}</p>}
+      {error && <p className="error">{error}</p>}
+
+      {result && result.total === 0 ? (
+        <p className="empty">{query ? `No satellites match “${query}”.` : 'The catalog is empty. Update orbit data to load satellites.'}</p>
+      ) : (
+        <div className="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th className="check">
+                  <span className="visually-hidden">Selected</span>
+                </th>
+                <th>Name</th>
+                <th>NORAD ID</th>
+                <th>Orbit data</th>
+                <th>Period</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result?.items.map((s) => {
+                const id = s.NORAD_CAT_ID
+                const isSelected = selected.has(id)
+                return (
+                  <tr key={id} className={isSelected ? 'selected' : undefined}>
+                    <td className="check">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={!isSelected && full}
+                        onChange={() => onToggle(id)}
+                        aria-label={`Select ${s.OBJECT_NAME}`}
+                      />
+                    </td>
+                    <td>
+                      <button className="link" onClick={() => onOpen(id)}>
+                        {s.OBJECT_NAME}
+                      </button>
+                      {watched.has(id) && (
+                        <span className="badge" title="On this location's watchlist">
+                          ★ watched
+                        </span>
+                      )}
+                    </td>
+                    <td className="mono">{id}</td>
+                    <td className="mono">{daysSince(s.EPOCH).toFixed(1)} days old</td>
+                    <td className="mono">{s.period_minutes.toFixed(1)} min</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {result && result.total > 0 && (
+        <div className="pager">
+          <button disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+            ‹ Previous
+          </button>
+          <span className="mono">
+            {formatCount(from)}–{formatCount(to)} of {formatCount(result.total)}
+          </span>
+          <button disabled={to >= result.total} onClick={() => setPage((p) => p + 1)}>
+            Next ›
+          </button>
+        </div>
+      )}
     </section>
   )
 }

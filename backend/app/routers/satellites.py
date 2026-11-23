@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, Depends, Path, Query, Response, status
 
 from app.db import DbSession
 from app.schemas import ErrorResponse, ImportRequest, ImportResult, Position, Satellite, SatelliteCreate, SatelliteUpdate
@@ -16,13 +16,20 @@ RULE = {422: {"model": ErrorResponse, "description": "Validation or business-rul
 NoradId = Annotated[int, Path(gt=0, description="NORAD catalog number, e.g. 25544 for the ISS")]
 
 
-@router.get("", response_model=list[Satellite], summary="List or search the catalog")
+@router.get(
+    "",
+    response_model=list[Satellite],
+    summary="List or search the catalog",
+    description="The X-Total-Count response header holds the number of matches, for paging.",
+)
 def list_satellites(
     db: DbSession,
+    response: Response,
     search: str | None = Query(None, min_length=1, max_length=60, description="Part of the name, or an exact NORAD ID"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
+    response.headers["X-Total-Count"] = str(service.count_satellites(db, search))
     return service.list_satellites(db, search, limit, offset)
 
 

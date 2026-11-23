@@ -47,7 +47,7 @@ export default function Locations({ observers, onChange }) {
   }
 
   return (
-    <section>
+    <section className="card">
       <h2>{editingId ? 'Edit location' : 'Add a location'}</h2>
       <form onSubmit={save} className="row">
         {FIELDS.map(([key, label]) => (

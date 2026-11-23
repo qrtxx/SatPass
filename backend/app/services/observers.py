@@ -99,16 +99,23 @@ def _point(look: orbit.LookFn, ts: float) -> PassPoint:
     return PassPoint(time=time, azimuth_deg=round(azimuth, 1), compass=orbit.azimuth_to_compass(azimuth))
 
 
-def predict_passes(db: Session, observer_id: int, start: datetime | None, hours: int, min_elevation: float | None) -> PassReport:
+def predict_passes(
+    db: Session, observer_id: int, start: datetime | None, hours: int, min_elevation: float | None, norad_ids: list[int] | None = None
+) -> PassReport:
+    """Passes of the given satellites (any, watched or not), or of the observer's watchlist when none are given."""
     obs = get_observer(db, observer_id)
-    if not obs.entries:
+    if norad_ids:
+        satellites = [get_satellite(db, norad_id) for norad_id in dict.fromkeys(norad_ids)]
+    elif obs.entries:
+        satellites = [entry.satellite for entry in obs.entries]
+    else:
         raise Conflict("empty_watchlist", "Add satellites to the watchlist before asking for passes")
     start = as_utc(start) if start else datetime.now(timezone.utc)
     end = start + timedelta(hours=hours)
     min_el = obs.min_elevation_deg if min_elevation is None else min_elevation
 
     passes, warnings = [], []
-    for sat in (entry.satellite for entry in obs.entries):
+    for sat in satellites:
         age = orbit_age_days(sat, start)
         if age > MAX_ORBIT_AGE_DAYS:
             warnings.append(f"{sat.OBJECT_NAME}: orbit data is {age:.0f} days old, skipped")

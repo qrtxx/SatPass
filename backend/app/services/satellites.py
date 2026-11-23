@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.errors import Conflict, NotFound, RuleViolation
@@ -20,14 +20,22 @@ def orbit_age_days(sat: SatelliteModel, at: datetime) -> float:
     return abs((at - sat.EPOCH).total_seconds()) / 86400
 
 
+def _search_filter(search: str | None):
+    if not search:
+        return true()
+    match = SatelliteModel.OBJECT_NAME.icontains(search, autoescape=True)
+    if search.isdigit() and len(search) <= 9:
+        match = or_(match, SatelliteModel.NORAD_CAT_ID == int(search))
+    return match
+
+
 def list_satellites(db: Session, search: str | None, limit: int, offset: int) -> list[SatelliteModel]:
-    query = select(SatelliteModel).order_by(SatelliteModel.OBJECT_NAME).limit(limit).offset(offset)
-    if search:
-        match = SatelliteModel.OBJECT_NAME.icontains(search, autoescape=True)
-        if search.isdigit() and len(search) <= 9:
-            match = or_(match, SatelliteModel.NORAD_CAT_ID == int(search))
-        query = query.where(match)
+    query = select(SatelliteModel).where(_search_filter(search)).order_by(SatelliteModel.OBJECT_NAME).limit(limit).offset(offset)
     return list(db.scalars(query))
+
+
+def count_satellites(db: Session, search: str | None) -> int:
+    return db.scalar(select(func.count()).select_from(SatelliteModel).where(_search_filter(search)))
 
 
 def get_satellite(db: Session, norad_id: int) -> SatelliteModel:

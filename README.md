@@ -4,7 +4,13 @@ SatPass predicts when satellites such as the ISS, Hubble and the Chinese space s
 
 The backend is a REST API built with **FastAPI**, **PostgreSQL**, **SQLAlchemy** and **Alembic**. It is in [`backend/`](backend/). See [`backend/README.md`](backend/README.md) for the endpoints, business rules, database schema and a Swagger test checklist.
 
-A minimal **React** (Vite) UI in [`src/`](src/) uses that API. It has three tabs: **Passes** (predict passes for the chosen location's watchlist), **Satellites** (search, watch/unwatch, current position, delete) and **Locations** (add, edit, delete). Errors from the API, such as validation errors or a duplicate name, are shown on the page.
+A **React** (Vite) UI in [`src/`](src/) uses that API:
+- **Satellites:** browse and search the whole catalog page by page, tick up to 20 satellites and press **Predict passes**, and update orbit data from CelesTrak.
+- **Satellite details:** click a satellite's name to see its orbit, where it is now (refreshed every 5 seconds), its next passes over your location, and Watch and Delete buttons.
+- **Passes:** predict for the ticked satellites or for the location's watchlist, over a chosen time window.
+- **Locations:** add, edit and delete them.
+
+Errors from the API, such as validation errors or a duplicate name, are shown on the page.
 
 ## How to run (Windows)
 

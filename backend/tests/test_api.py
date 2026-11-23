@@ -148,6 +148,41 @@ def test_passes_errors_and_warnings():
     assert r.status_code == 409 and r.json()["code"] == "empty_watchlist"
 
 
+def test_passes_for_any_satellite():
+    # Almaty watches only the ISS; ask for the Chinese station instead.
+    passes = client.get("/observers/1/passes", params={"start": START, "norad_id": 48274}).json()["passes"]
+    assert passes and {p["norad_id"] for p in passes} == {48274}
+
+
+def test_passes_for_several_satellites_ignore_duplicates():
+    def ids(*norad_ids):
+        r = client.get("/observers/1/passes", params={"start": START, "norad_id": list(norad_ids)})
+        return [p["norad_id"] for p in r.json()["passes"]]
+
+    assert sorted(ids(25544, 48274, 25544)) == sorted(ids(25544) + ids(48274))
+
+
+def test_selected_passes_need_no_watchlist():
+    obs_id = client.post("/observers", json={"name": "Empty", "latitude": 43.2, "longitude": 76.9}).json()["id"]
+    assert client.get(f"/observers/{obs_id}/passes", params={"start": START, "norad_id": 25544}).status_code == 200
+    assert client.get(f"/observers/{obs_id}/passes").json()["code"] == "empty_watchlist"
+
+
+def test_passes_unknown_satellite():
+    r = client.get("/observers/1/passes", params={"norad_id": 1})
+    assert r.status_code == 404 and r.json()["code"] == "satellite_not_found"
+
+
+def test_passes_selection_limit():
+    assert client.get("/observers/1/passes", params={"norad_id": list(range(1, 22))}).status_code == 422
+
+
+def test_satellite_list_total_header():
+    r = client.get("/satellites", params={"limit": 5})
+    assert len(r.json()) == 5 and r.headers["X-Total-Count"] == "20"
+    assert client.get("/satellites", params={"search": "iss"}).headers["X-Total-Count"] == "2"
+
+
 # --- Database integrity ---------------------------------------------------------
 
 

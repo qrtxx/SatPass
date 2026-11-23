@@ -1,47 +1,79 @@
 import { useEffect, useState } from 'react'
-import { api, formatTime } from './api.js'
+import { api, formatDuration, formatPassTime, formatTime } from './api.js'
 
-const duration = (s) => `${Math.floor(s / 60)} min ${s % 60} s`
-
-export default function Passes({ observer }) {
+export default function Passes({ observer, source, onSourceChange, selected, onOpen, autoPredict, onAutoPredicted }) {
   const [start, setStart] = useState('') // empty means "now"
   const [hours, setHours] = useState('24')
   const [minElevation, setMinElevation] = useState('')
   const [watchlist, setWatchlist] = useState([])
   const [report, setReport] = useState(null)
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(Boolean(autoPredict && observer))
 
   useEffect(() => {
     if (!observer) return
     api(`/observers/${observer.id}/watchlist`).then(setWatchlist, (e) => setError(e.message))
   }, [observer])
 
-  if (!observer) return <p>Add a location in the Locations tab first.</p>
+  const noneSelected = source === 'selected' && selected.size === 0
 
-  async function predict(event) {
-    event.preventDefault()
+  function switchSource(next) {
+    onSourceChange(next)
+    setReport(null)
+    setError('')
+  }
+
+  // Sends the request; the state changes happen when it answers.
+  function requestPasses() {
     const params = new URLSearchParams({ hours })
     if (start) params.set('start', new Date(start).toISOString())
     if (minElevation !== '') params.set('min_elevation', minElevation)
-    setLoading(true)
-    setError('')
-    try {
-      setReport(await api(`/observers/${observer.id}/passes?${params}`))
-    } catch (e) {
-      setError(e.message)
-      setReport(null)
-    } finally {
-      setLoading(false)
-    }
+    if (source === 'selected') selected.forEach((id) => params.append('norad_id', id))
+    return api(`/observers/${observer.id}/passes?${params}`)
+      .then(
+        (r) => (setReport(r), setError('')),
+        (e) => (setError(e.message), setReport(null)),
+      )
+      .finally(() => setLoading(false))
   }
 
+  function predict(event) {
+    event.preventDefault()
+    setLoading(true)
+    setError('')
+    requestPasses()
+  }
+
+  // Arriving from the Satellites tab's "Predict passes": run it once with the default window.
+  useEffect(() => {
+    if (!autoPredict || !observer) return
+    onAutoPredicted()
+    requestPasses()
+  }, [autoPredict, observer]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!observer) return <p className="empty card">Add a location in the Locations tab first.</p>
+
   return (
-    <section>
-      <p>
-        Watching from <b>{observer.name}</b>:{' '}
-        {watchlist.length ? watchlist.map((s) => s.OBJECT_NAME).join(', ') : 'nothing yet (add satellites in the Satellites tab)'}
+    <section className="card">
+      <div className="segmented" role="group" aria-label="Which satellites">
+        <button aria-pressed={source === 'watchlist'} onClick={() => switchSource('watchlist')}>
+          Watchlist ({watchlist.length})
+        </button>
+        <button aria-pressed={source === 'selected'} onClick={() => switchSource('selected')}>
+          Selected ({selected.size})
+        </button>
+      </div>
+
+      <p className="muted">
+        {source === 'watchlist'
+          ? watchlist.length
+            ? `Watched from ${observer.name}: ${watchlist.map((s) => s.OBJECT_NAME).join(', ')}`
+            : `${observer.name} isn't watching any satellites yet. Open a satellite and press Watch, or use Selected.`
+          : noneSelected
+            ? 'No satellites selected: tick some in the Satellites tab.'
+            : `${selected.size} satellite${selected.size === 1 ? '' : 's'} ticked in the Satellites tab, from ${observer.name}.`}
       </p>
+
       <form onSubmit={predict} className="row">
         <label>
           Start (empty = now)
@@ -61,24 +93,23 @@ export default function Passes({ observer }) {
             onChange={(e) => setMinElevation(e.target.value)}
           />
         </label>
-        <button disabled={loading}>{loading ? 'Calculating…' : 'Predict passes'}</button>
+        <button className="primary" disabled={loading || noneSelected}>
+          {loading ? 'Calculating…' : 'Predict passes'}
+        </button>
       </form>
-      <p className="muted">Orbit data is a snapshot from 4 Nov 2026. If passes are skipped as too old, pick a start near that date.</p>
 
       {error && <p className="error">{error}</p>}
       {report && (
         <>
           <p>
-            {report.passes.length} passes between {formatTime(report.start)} and {formatTime(report.end)}, peaking at least{' '}
-            {report.min_elevation_deg}° high. Times are local.
+            <b>{report.passes.length}</b> passes between {formatTime(report.start)} and {formatTime(report.end)}, peaking at
+            least {report.min_elevation_deg}° high. Times are local.
           </p>
-          {report.warnings.length > 0 && (
-            <ul className="warning">
-              {report.warnings.map((w) => (
-                <li key={w}>{w}</li>
-              ))}
-            </ul>
-          )}
+          {report.warnings.map((w) => (
+            <p key={w} className="warning">
+              {w}
+            </p>
+          ))}
           {report.passes.length > 0 && (
             <div className="scroll">
               <table>
@@ -94,17 +125,21 @@ export default function Passes({ observer }) {
                 <tbody>
                   {report.passes.map((p) => (
                     <tr key={`${p.norad_id}-${p.rise.time}`}>
-                      <td>{p.name}</td>
                       <td>
-                        {formatTime(p.rise.time)} in the {p.rise.compass}
+                        <button className="link" onClick={() => onOpen(p.norad_id)}>
+                          {p.name}
+                        </button>
                       </td>
                       <td>
-                        {formatTime(p.peak.time)}, {p.peak.elevation_deg}° in the {p.peak.compass}
+                        <span className="mono">{formatPassTime(p.rise.time)}</span> {p.rise.compass}
                       </td>
                       <td>
-                        {formatTime(p.set.time)} in the {p.set.compass}
+                        <span className="mono">{formatPassTime(p.peak.time)}</span> <b>{p.peak.elevation_deg}°</b> {p.peak.compass}
                       </td>
-                      <td>{duration(p.duration_seconds)}</td>
+                      <td>
+                        <span className="mono">{formatPassTime(p.set.time)}</span> {p.set.compass}
+                      </td>
+                      <td className="mono">{formatDuration(p.duration_seconds)}</td>
                     </tr>
                   ))}
                 </tbody>
