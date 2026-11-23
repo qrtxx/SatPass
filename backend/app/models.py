@@ -87,3 +87,17 @@ class WatchlistEntry(Base):
 
     observer: Mapped[ObserverModel] = relationship(back_populates="entries")
     satellite: Mapped[SatelliteModel] = relationship(back_populates="entries")
+
+
+class CatalogImportModel(Base):
+    """The last successful import of each CelesTrak group (CelesTrak allows one download per group every 2 hours)."""
+
+    __tablename__ = "catalog_imports"
+
+    group_name: Mapped[str] = mapped_column(String(20), primary_key=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    received: Mapped[int]
+    added: Mapped[int]
+    updated: Mapped[int]
+    unchanged: Mapped[int]
+    skipped: Mapped[int]

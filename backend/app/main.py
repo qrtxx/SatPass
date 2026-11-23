@@ -17,7 +17,7 @@ app.include_router(observers.router)
 
 @app.exception_handler(DomainError)
 async def domain_error_handler(request: Request, exc: DomainError):
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message, "code": exc.code})
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message, "code": exc.code}, headers=exc.headers)
 
 
 @app.exception_handler(IntegrityError)

@@ -90,7 +90,14 @@ npm run dev
 
 Open **http://localhost:5173**. The UI sends its requests to `/api/...`, and Vite forwards them to the API on port 8000, so no CORS setup is needed. If the API runs on another port, start the UI with `$env:API_URL="http://127.0.0.1:8001"; npm run dev`.
 
-The sample orbit data is from 4 Nov 2026. In the Passes tab, set the start to around 5 Nov 2026 (for example 2026-11-05 05:00 in Almaty) to see the ISS passes.
+### 9. Load live orbit data
+
+The sample data is a snapshot from 4 Nov 2026, so predictions from "now" are inaccurate or skipped. To get current data, open the **Satellites** tab, choose a group and press **Update orbit data**:
+
+- `stations`: the ISS, the Chinese station and a few others. Takes a few seconds.
+- `active`: every working satellite (about 17,000). The download takes about a minute.
+
+Each group can be updated once every 2 hours; CelesTrak blocks clients that download more often. Without live data, set the Passes tab's start to around 5 Nov 2026 to see the sample ISS passes.
 
 ### Run the tests
 

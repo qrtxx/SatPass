@@ -1,7 +1,7 @@
 """Pydantic models for requests and responses."""
 
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, computed_field
 
@@ -167,3 +167,30 @@ class PassReport(BaseModel):
     min_elevation_deg: float
     passes: list[SatellitePass]
     warnings: list[str]
+
+
+# --- Catalog import -------------------------------------------------------------
+
+CelestrakGroup = Literal["active", "stations", "visual", "weather", "science", "gps-ops", "galileo", "starlink"]
+
+
+class ImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"example": {"group": "stations"}})
+
+    group: CelestrakGroup = Field(description="CelesTrak group: 'active' is every working satellite (~17k, takes about a minute)")
+
+
+class SkippedRecord(BaseModel):
+    norad_id: int | None
+    reason: str
+
+
+class ImportResult(BaseModel):
+    group: str
+    fetched_at: datetime
+    received: int = Field(description="Records CelesTrak sent (duplicates included)")
+    added: int
+    updated: int = Field(description="Existing satellites that got a newer element set")
+    unchanged: int = Field(description="Existing satellites whose stored element set is as new or newer")
+    skipped: int = Field(description="Records rejected by validation")
+    skipped_examples: list[SkippedRecord] = Field(description="Up to 10 rejected records and why")

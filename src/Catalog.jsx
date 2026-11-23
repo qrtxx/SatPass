@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
 import { api, formatTime } from './api.js'
 
+// CelesTrak groups the API accepts; "active" is every working satellite (~17k).
+const GROUPS = ['stations', 'visual', 'active', 'weather', 'science', 'gps-ops', 'galileo', 'starlink']
+const count = (n) => n.toLocaleString()
+
 export default function Catalog({ observer, onChange }) {
+  const [group, setGroup] = useState('stations')
+  const [importing, setImporting] = useState(false)
   const [search, setSearch] = useState('')
   const [satellites, setSatellites] = useState([])
   const [message, setMessage] = useState('')
@@ -56,8 +62,40 @@ export default function Catalog({ observer, onChange }) {
       await onChange()
     })
 
+  const importGroup = () =>
+    act(async () => {
+      setImporting(true)
+      try {
+        const r = await api('/satellites/import', { method: 'POST', body: { group } })
+        setMessage(
+          `Updated '${r.group}' from CelesTrak: ${count(r.added)} added, ${count(r.updated)} updated, ` +
+            `${count(r.unchanged)} unchanged, ${count(r.skipped)} skipped.`,
+        )
+        await load(search)
+      } finally {
+        setImporting(false)
+      }
+    })
+
   return (
     <section>
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault()
+          importGroup()
+        }}
+      >
+        <label>
+          Satellite group
+          <select value={group} onChange={(e) => setGroup(e.target.value)}>
+            {GROUPS.map((g) => (
+              <option key={g}>{g}</option>
+            ))}
+          </select>
+        </label>
+        <button disabled={importing}>{importing ? 'Downloading… this can take a minute' : 'Update orbit data'}</button>
+      </form>
       <form
         className="row"
         onSubmit={(e) => {

@@ -37,7 +37,7 @@ def get_satellite(db: Session, norad_id: int) -> SatelliteModel:
     return sat
 
 
-def _check_elements(sat: SatelliteCreate) -> None:
+def check_elements(sat: SatelliteCreate) -> None:
     if sat.EPOCH > datetime.now(timezone.utc) + EPOCH_FUTURE_TOLERANCE:
         raise RuleViolation("epoch_in_future", "EPOCH cannot be more than 1 day in the future")
     rec = orbit.build_satrec(sat)
@@ -49,7 +49,7 @@ def _check_elements(sat: SatelliteCreate) -> None:
 def create_satellite(db: Session, data: SatelliteCreate) -> SatelliteModel:
     if db.get(SatelliteModel, data.NORAD_CAT_ID):
         raise Conflict("satellite_exists", f"Satellite {data.NORAD_CAT_ID} is already in the catalog")
-    _check_elements(data)
+    check_elements(data)
     sat = SatelliteModel(**data.model_dump())
     db.add(sat)
     db.commit()
@@ -67,7 +67,7 @@ def update_satellite(db: Session, norad_id: int, patch: SatelliteUpdate) -> Sate
     if "EPOCH" in changes and changes["EPOCH"] <= current.EPOCH:
         raise Conflict("outdated_elements", f"New EPOCH must be later than the current one ({current.EPOCH.isoformat()})")
     # Check the merged element set before touching the row, so a rejected update leaves it unchanged.
-    _check_elements(Satellite.model_validate(current).model_copy(update=changes))
+    check_elements(Satellite.model_validate(current).model_copy(update=changes))
     for field, value in changes.items():
         setattr(current, field, value)
     db.commit()

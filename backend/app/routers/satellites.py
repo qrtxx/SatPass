@@ -1,11 +1,13 @@
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Query, status
+from fastapi import APIRouter, Depends, Path, Query, status
 
 from app.db import DbSession
-from app.schemas import ErrorResponse, Position, Satellite, SatelliteCreate, SatelliteUpdate
+from app.schemas import ErrorResponse, ImportRequest, ImportResult, Position, Satellite, SatelliteCreate, SatelliteUpdate
+from app.services import catalog_import
 from app.services import satellites as service
+from app.services.celestrak import Fetcher, get_fetcher
 
 router = APIRouter(prefix="/satellites", tags=["Satellites"])
 
@@ -33,6 +35,22 @@ def list_satellites(
 )
 def create_satellite(db: DbSession, data: SatelliteCreate):
     return service.create_satellite(db, data)
+
+
+@router.post(
+    "/import",
+    response_model=ImportResult,
+    summary="Download a CelesTrak group and add or refresh its satellites",
+    description="Adds new satellites and updates those with a newer EPOCH. Invalid records are skipped. "
+    "Each group can be imported once every 2 hours (CelesTrak's rule). The 'active' group takes about a minute.",
+    responses={
+        409: {"model": ErrorResponse, "description": "Another import is still running"},
+        429: {"model": ErrorResponse, "description": "This group was imported less than 2 hours ago (see Retry-After)"},
+        502: {"model": ErrorResponse, "description": "CelesTrak could not be reached or sent no orbital data"},
+    },
+)
+def import_catalog(db: DbSession, data: ImportRequest, fetch: Annotated[Fetcher, Depends(get_fetcher)]):
+    return catalog_import.import_group(db, data.group, fetch)
 
 
 @router.get("/{norad_id}", response_model=Satellite, responses=NOT_FOUND)

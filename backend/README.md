@@ -2,7 +2,9 @@
 
 FastAPI backend for SatPass: it predicts when satellites (ISS, Hubble, Chinese space station, …) pass over an observer, using real CelesTrak orbital elements and the SGP4 orbit model.
 
-Data is stored in PostgreSQL through SQLAlchemy, and the schema is built by Alembic migrations. The migrations also load seed data: the 20 satellites in `../src/data/sample-gp.json` and one observer, **Almaty (id 1)**, watching the ISS.
+Data is stored in PostgreSQL through SQLAlchemy, and the schema is built by Alembic migrations. The migrations also load seed data: the 20 satellites in `../src/data/sample-gp.json` (a snapshot from 4 Nov 2026) and one observer, **Almaty (id 1)**, watching the ISS.
+
+To get **current** orbital data, call `POST /satellites/import` (or press **Update orbit data** in the UI's Satellites tab). It downloads a CelesTrak group, for example `active` (about 17,000 working satellites), and adds or refreshes them.
 
 ## Run
 
@@ -34,10 +36,11 @@ satellites 1 ──< watchlist_entries >── 1 observers
 | `satellites` | `norad_cat_id` (PK, the NORAD catalog number), `object_name`, `epoch` (timestamptz), 9 orbital elements (double precision) | CHECK ranges for mean motion, eccentricity, inclination and the angles |
 | `observers` | `id` (serial PK), `name`, `latitude`, `longitude`, `elevation_m`, `min_elevation_deg`, `created_at` | CHECK coordinate ranges, non-blank name; unique index on `lower(name)` |
 | `watchlist_entries` | `observer_id` (FK), `norad_id` (FK), `added_at` | PK (`observer_id`, `norad_id`) so a satellite is watched once per observer; both FKs `ON DELETE CASCADE` |
+| `catalog_imports` | `group_name` (PK), `fetched_at`, `received`, `added`, `updated`, `unchanged`, `skipped` | One row per CelesTrak group: the last successful import, used for the 2-hour limit |
 
 Relationships: one observer has many watchlist entries, and one satellite appears in many watchlist entries. Together they form a many-to-many between observers and satellites. Deleting an observer deletes its watchlist; deleting a satellite removes it from every watchlist.
 
-Migrations are in `alembic/versions/`: the first creates the tables, the second loads the seed data.
+Migrations are in `alembic/versions/`: the first creates the tables, the second loads the seed data, the third adds `catalog_imports`.
 
 The API checks every rule first and returns a readable error. The database constraints are a second line of defence; if one fires anyway, the API answers 409 `integrity_error` instead of crashing.
 
@@ -56,6 +59,8 @@ app/
 └─ services/            business logic, no FastAPI imports
    ├─ orbit.py          SGP4, look angles, ground point, pass search (pure math)
    ├─ satellites.py     catalog rules
+   ├─ celestrak.py      downloads a group of orbital elements from CelesTrak
+   ├─ catalog_import.py adds/refreshes the catalog from a download (2-hour limit)
    └─ observers.py      observers, watchlist, pass prediction
 alembic/versions/       migrations: schema, then seed data
 tests/                  pytest: orbit math, every endpoint, database constraints
@@ -66,6 +71,7 @@ tests/                  pytest: orbit math, every endpoint, database constraints
 | Workflow | Endpoints | Rules |
 |---|---|---|
 | **1. Satellite catalog**: add, search, refresh and remove orbital element sets | `GET/POST /satellites`, `GET/PATCH/DELETE /satellites/{norad_id}`, `GET /satellites/{norad_id}/position` | NORAD ID is unique (409). Elements must describe a real orbit, e.g. not a perigee inside Earth (422). EPOCH can't be in the future (422). Changing elements requires a new EPOCH (422) that is later than the current one (409). Deleting a satellite removes it from every watchlist. Positions are refused when the elements are more than 30 days from the requested time. |
+| **1b. Live data**: refresh the catalog from CelesTrak | `POST /satellites/import` `{"group": "active"}` | Groups: `active`, `stations`, `visual`, `weather`, `science`, `gps-ops`, `galileo`, `starlink` (others 422). Each record passes the same checks as `POST /satellites`; invalid ones are skipped and counted, with up to 10 examples. New satellites are added; existing ones are updated only if CelesTrak's EPOCH is newer. Satellites missing from the download are kept. Everything is saved in one transaction. A group can be imported once every 2 hours, CelesTrak's rule (429 with `Retry-After`). Only one import runs at a time (409 `import_in_progress`). CelesTrak down or answering with text instead of data: 502. `received` counts duplicates too, so the numbers can add up to less than it. |
 | **2. Observers & watchlist**: save locations and the satellites each one follows | `GET/POST /observers`, `GET/PATCH/DELETE /observers/{id}`, `GET/POST /observers/{id}/watchlist`, `DELETE /observers/{id}/watchlist/{norad_id}` | Latitude/longitude ranges (422). Names are unique, ignoring case (409). A satellite must exist to be watched (404), can't be watched twice (409), and a watchlist holds at most 10 (409). |
 | **3. Pass prediction**: when will my satellites fly over me? | `GET /observers/{id}/passes?hours=&min_elevation=&start=` | Watchlist must not be empty (409). Window 1–72 h. Passes peaking below the minimum height (default: the observer's setting) are dropped. Elements older than 3 days give a warning, older than 30 days are skipped with a warning. Result is sorted by rise time across all watched satellites. |
 
@@ -98,5 +104,9 @@ Reset to the seed data first (`alembic downgrade base`, then `alembic upgrade he
 | 19 | `DELETE /observers/1/watchlist/48274` | 404 `not_watched` |
 | 20 | `DELETE /observers/2`, then `GET /observers/2` | 204, then 404 |
 | 21 | `POST /observers` with a new name, stop the server (Ctrl+C), start it again, `GET /observers` | The new observer is still there |
+| 22 | `POST /satellites/import` `{"group": "stations"}` | 200; `updated` > 0 (the seeded stations get current epochs) |
+| 23 | The same request again | 429 `import_too_soon`, with a `Retry-After` header |
+| 24 | `POST /satellites/import` `{"group": "nosuchgroup"}` | 422 |
+| 25 | `GET /observers/1/passes` (no `start`) after row 22 | 200, ISS passes from now, `warnings` empty |
 
 The first ISS pass in row 15 rises at 15:59:26 UTC in the SW and peaks at 61.5°. This matches satellite.js on the same data.

@@ -4,10 +4,11 @@
 class DomainError(Exception):
     status_code = 400
 
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, headers: dict[str, str] | None = None):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.headers = headers
 
 
 class NotFound(DomainError):
@@ -20,3 +21,13 @@ class Conflict(DomainError):
 
 class RuleViolation(DomainError):
     status_code = 422
+
+
+class TooManyRequests(DomainError):
+    status_code = 429
+
+
+class BadGateway(DomainError):
+    """A service we depend on (CelesTrak) failed or answered with something unusable."""
+
+    status_code = 502
