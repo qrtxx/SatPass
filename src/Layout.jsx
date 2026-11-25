@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, NavLink, Outlet } from 'react-router'
+import { Link, NavLink, Outlet, useLocation } from 'react-router'
 import { useAuth } from './useAuth.js'
 import SatelliteDetails from './SatelliteDetails.jsx'
 import { useAppState } from './useAppState.js'
@@ -15,7 +15,8 @@ const LINKS = [
 
 export default function Layout() {
   const app = useAppState()
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
+  const location = useLocation()
   const { detailsId, closeDetails } = useDetails()
   const [menuOpen, setMenuOpen] = useState(false)
   // Keep an open details panel open when moving between pages.
@@ -46,21 +47,30 @@ export default function Layout() {
           ))}
         </nav>
         <div className="topbar-right">
-          <label className="location">
-            Location
-            <select value={app.observerId ?? ''} onChange={(e) => app.setObserverId(Number(e.target.value))}>
-              {app.observers.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {user && (
+            <label className="location">
+              Location
+              <select value={app.observerId ?? ''} onChange={(e) => app.setObserverId(Number(e.target.value))}>
+                {app.observers.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {user ? (
-            <details className="user-menu">
-              <summary>{user.username} ▾</summary>
-              <Link to="/account">Account</Link>
-              <button>Log out</button>
+            // Keyed by the page, so the menu closes whenever you navigate.
+            <details className="user-menu" key={location.pathname}>
+              <summary>
+                {user.username}
+                {user.role === 'admin' && <span className="coming-soon">admin</span>} ▾
+              </summary>
+              <div className="user-menu-items">
+                <Link to="/account">Account</Link>
+                {/* You stay on this page: public pages keep working, pages that need a login show the login form. */}
+                <button onClick={logout}>Log out</button>
+              </div>
             </details>
           ) : (
             <>

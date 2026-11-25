@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, apiPage, daysSince, formatCount, MAX_SELECTED } from './api.js'
+import { useAuth } from './useAuth.js'
 
 const PAGE = 50
 // CelesTrak groups the API accepts; "active" is every working satellite (~17k).
@@ -47,6 +48,7 @@ export default function Catalog({ observer, selected, onToggle, onClear, onPredi
   }
 
   const watched = new Set(observer?.watchlist)
+  const isAdmin = useAuth().user?.role === 'admin' // only admins may change the catalog
   const full = selected.size >= MAX_SELECTED
   const from = page * PAGE + 1
   const to = result ? Math.min((page + 1) * PAGE, result.total) : 0
@@ -70,6 +72,7 @@ export default function Catalog({ observer, selected, onToggle, onClear, onPredi
           </label>
           <button>Search</button>
         </form>
+{isAdmin && (
         <form className="row" onSubmit={importGroup}>
           <label>
             Satellite group
@@ -81,6 +84,7 @@ export default function Catalog({ observer, selected, onToggle, onClear, onPredi
           </label>
           <button disabled={importing}>{importing ? 'Downloading… this can take a minute' : 'Update orbit data'}</button>
         </form>
+        )}
       </div>
 
       <div className="selection-bar" aria-live="polite">

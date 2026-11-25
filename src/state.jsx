@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, MAX_SELECTED } from './api.js'
 import { AppStateContext } from './useAppState.js'
+import { useAuth } from './useAuth.js'
 
 // State shared by every page: locations, the chosen location, ticked satellites, and the Passes page's mode.
 export function AppStateProvider({ children }) {
+  const { user } = useAuth()
+  const userId = user?.id ?? null
   const [observers, setObservers] = useState([])
   const [observerId, setObserverId] = useState(null)
   const [observersLoaded, setObserversLoaded] = useState(false) // so pages can tell "loading" from "no locations"
@@ -29,9 +32,22 @@ export function AppStateProvider({ children }) {
     [],
   )
 
+  // When the logged-in user changes: forget the previous user's locations, and on logout their ticks too.
+  // (Adjusting state during render, React's recommended alternative to an effect for this.)
+  const [shownUserId, setShownUserId] = useState(userId)
+  if (userId !== shownUserId) {
+    setShownUserId(userId)
+    setObservers([])
+    setObserverId(null)
+    setObserversLoaded(false)
+    setError('')
+    if (userId === null) setSelected(new Set())
+  }
+
+  // Locations are private, so they're only loaded for a logged-in user.
   useEffect(() => {
-    reloadObservers()
-  }, [reloadObservers])
+    if (userId !== null) reloadObservers()
+  }, [userId, reloadObservers])
 
   const toggleSelected = useCallback((id) => {
     setSelected((prev) => {

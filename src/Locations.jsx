@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from './api.js'
+import { useAuth } from './useAuth.js'
 
 const FIELDS = [
   ['name', 'Name'],
@@ -11,6 +12,7 @@ const FIELDS = [
 const EMPTY = { name: '', latitude: '', longitude: '', elevation_m: '0', min_elevation_deg: '10' }
 
 export default function Locations({ observers, onChange }) {
+  const isAdmin = useAuth().user?.role === 'admin' // admins see every user's locations
   const [form, setForm] = useState(EMPTY)
   const [editingId, setEditingId] = useState(null)
   const [error, setError] = useState('')
@@ -78,6 +80,7 @@ export default function Locations({ observers, onChange }) {
                 <th key={key}>{label}</th>
               ))}
               <th>Watching</th>
+              {isAdmin && <th>Owner (user id)</th>}
               <th />
             </tr>
           </thead>
@@ -88,6 +91,7 @@ export default function Locations({ observers, onChange }) {
                   <td key={key}>{o[key]}</td>
                 ))}
                 <td>{o.watchlist.length}</td>
+                {isAdmin && <td className="mono">{o.owner_id}</td>}
                 <td className="actions">
                   <button
                     onClick={() => {

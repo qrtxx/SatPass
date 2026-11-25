@@ -192,9 +192,25 @@ label > select {
 .user-menu {
   position: relative;
 }
-.user-menu[open] > :not(summary) {
-  display: block;
+.user-menu summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.user-menu-items {
+  position: absolute;
+  right: 0;
+  z-index: 10;
+  min-width: 150px;
   margin-top: 4px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 .menu-button {
   display: none;

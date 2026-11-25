@@ -3,15 +3,52 @@
 // Same limit as the API's passes endpoint (?norad_id= repeated at most 20 times).
 export const MAX_SELECTED = 20
 
+// --- Login token -----------------------------------------------------------------
+// Kept in localStorage so a reload stays logged in. shortcut: readable by any script on the page (an XSS
+// risk); an httpOnly cookie would avoid that but needs CSRF protection and a backend change.
+const TOKEN_KEY = 'satpass.token'
+let token = readToken()
+let unauthorizedHandler = null
+
+function readToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY)
+  } catch {
+    return null // storage blocked (e.g. private mode): log in again after a reload
+  }
+}
+
+export function setToken(value) {
+  token = value
+  try {
+    if (value) localStorage.setItem(TOKEN_KEY, value)
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    // storage blocked: the token still works until the page is reloaded
+  }
+}
+
+export const hasToken = () => Boolean(token)
+
+// Called when a request that carried a token gets 401 (expired, or the user was deleted): log out.
+export function onUnauthorized(handler) {
+  unauthorizedHandler = handler
+}
+
 async function request(path, { method = 'GET', body } = {}) {
-  const res = await fetch(`/api${path}`, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  })
+  const headers = {}
+  if (body) headers['Content-Type'] = 'application/json'
+  if (token) headers.Authorization = `Bearer ${token}`
+  const res = await fetch(`/api${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined })
   if (res.status === 204) return { res, data: null }
   const data = await res.json().catch(() => null)
-  if (!res.ok) throw new Error(errorText(data, res.status))
+  if (!res.ok) {
+    if (res.status === 401 && token) unauthorizedHandler?.()
+    const error = new Error(errorText(data, res.status))
+    error.status = res.status
+    error.code = data?.code
+    throw error
+  }
   return { res, data }
 }
 

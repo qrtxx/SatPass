@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, daysSince, formatDuration, formatPassTime, formatTime, MAX_SELECTED } from './api.js'
 import { formatLat, formatLon, orbitShape } from './orbit.js'
+import { useAuth } from './useAuth.js'
 
 const REFRESH_MS = 5000
 
@@ -13,6 +14,7 @@ export default function SatelliteDetails({ noradId, observer, selected, onToggle
   const [passesError, setPassesError] = useState('')
   const [actionError, setActionError] = useState('')
   const observerId = observer?.id
+  const { user } = useAuth()
   const panelRef = useRef(null)
   const headingRef = useRef(null)
 
@@ -141,9 +143,11 @@ export default function SatelliteDetails({ noradId, observer, selected, onToggle
               Selected for passes
             </label>
             {observer && <button onClick={toggleWatch}>{watched ? '★ Watched' : '☆ Watch'}</button>}
-            <button className="danger" onClick={remove}>
-              Delete
-            </button>
+            {user?.role === 'admin' && (
+              <button className="danger" onClick={remove}>
+                Delete
+              </button>
+            )}
           </div>
           {actionError && <p className="error">{actionError}</p>}
 
