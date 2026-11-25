@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path, Query, Response, status
 
 from app.db import DbSession
+from app.dependencies import require_admin
 from app.schemas import ErrorResponse, ImportRequest, ImportResult, Position, Satellite, SatelliteCreate, SatelliteUpdate
 from app.services import catalog_import
 from app.services import satellites as service
@@ -12,6 +13,12 @@ from app.services.celestrak import Fetcher, get_fetcher
 router = APIRouter(prefix="/satellites", tags=["Satellites"])
 
 NOT_FOUND = {404: {"model": ErrorResponse, "description": "Satellite not found"}}
+# Reading the catalog is public; changing it (add, edit, delete, import) is for administrators.
+ADMIN_ONLY = [Depends(require_admin)]
+ADMIN_RESPONSES = {
+    401: {"model": ErrorResponse, "description": "Not logged in"},
+    403: {"model": ErrorResponse, "description": "Only administrators can change the catalog"},
+}
 RULE = {422: {"model": ErrorResponse, "description": "Validation or business-rule error"}}
 NoradId = Annotated[int, Path(gt=0, description="NORAD catalog number, e.g. 25544 for the ISS")]
 
@@ -35,10 +42,11 @@ def list_satellites(
 
 @router.post(
     "",
+    dependencies=ADMIN_ONLY,
     response_model=Satellite,
     status_code=status.HTTP_201_CREATED,
     summary="Add a satellite from its orbital elements",
-    responses={409: {"model": ErrorResponse, "description": "NORAD ID already in the catalog"}, **RULE},
+    responses={409: {"model": ErrorResponse, "description": "NORAD ID already in the catalog"}, **RULE, **ADMIN_RESPONSES},
 )
 def create_satellite(db: DbSession, data: SatelliteCreate):
     return service.create_satellite(db, data)
@@ -46,6 +54,7 @@ def create_satellite(db: DbSession, data: SatelliteCreate):
 
 @router.post(
     "/import",
+    dependencies=ADMIN_ONLY,
     response_model=ImportResult,
     summary="Download a CelesTrak group and add or refresh its satellites",
     description="Adds new satellites and updates those with a newer EPOCH. Invalid records are skipped. "
@@ -54,6 +63,7 @@ def create_satellite(db: DbSession, data: SatelliteCreate):
         409: {"model": ErrorResponse, "description": "Another import is still running"},
         429: {"model": ErrorResponse, "description": "This group was imported less than 2 hours ago (see Retry-After)"},
         502: {"model": ErrorResponse, "description": "CelesTrak could not be reached or sent no orbital data"},
+        **ADMIN_RESPONSES,
     },
 )
 def import_catalog(db: DbSession, data: ImportRequest, fetch: Annotated[Fetcher, Depends(get_fetcher)]):
@@ -67,9 +77,10 @@ def get_satellite(db: DbSession, norad_id: NoradId):
 
 @router.patch(
     "/{norad_id}",
+    dependencies=ADMIN_ONLY,
     response_model=Satellite,
     summary="Rename a satellite or load a newer element set",
-    responses={**NOT_FOUND, 409: {"model": ErrorResponse, "description": "New EPOCH is not later than the current one"}, **RULE},
+    responses={**NOT_FOUND, 409: {"model": ErrorResponse, "description": "New EPOCH is not later than the current one"}, **RULE, **ADMIN_RESPONSES},
 )
 def update_satellite(db: DbSession, data: SatelliteUpdate, norad_id: NoradId):
     return service.update_satellite(db, norad_id, data)
@@ -77,9 +88,10 @@ def update_satellite(db: DbSession, data: SatelliteUpdate, norad_id: NoradId):
 
 @router.delete(
     "/{norad_id}",
+    dependencies=ADMIN_ONLY,
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Remove a satellite (also removes it from every watchlist)",
-    responses=NOT_FOUND,
+    responses={**NOT_FOUND, **ADMIN_RESPONSES},
 )
 def delete_satellite(db: DbSession, norad_id: NoradId):
     service.delete_satellite(db, norad_id)

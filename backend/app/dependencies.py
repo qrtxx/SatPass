@@ -6,7 +6,7 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.db import DbSession
-from app.errors import Unauthorized
+from app.errors import Forbidden, Unauthorized
 from app.models import UserModel
 from app.security import decode_access_token
 
@@ -26,3 +26,13 @@ def get_current_user(db: DbSession, credentials: Annotated[HTTPAuthorizationCred
 
 
 CurrentUser = Annotated[UserModel, Depends(get_current_user)]
+
+
+def require_admin(user: CurrentUser) -> UserModel:
+    # The role comes from the database (via get_current_user), so demoting someone takes effect immediately.
+    if user.role != "admin":
+        raise Forbidden("admin_only", "Only administrators can do this")
+    return user
+
+
+AdminUser = Annotated[UserModel, Depends(require_admin)]

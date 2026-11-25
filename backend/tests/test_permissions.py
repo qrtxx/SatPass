@@ -1,7 +1,11 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.main import app
+from app.models import UserModel
+from app.schemas import ISS_EXAMPLE
+from app.services.celestrak import get_fetcher
 
 client = TestClient(app)
 HOME = {"name": "Home", "latitude": 43.2, "longitude": 76.9}
@@ -74,3 +78,41 @@ def test_new_observer_is_owned_by_creator(db, make_user):
     alice = make_user("alice")
     me = client.get("/auth/me", headers=alice).json()
     assert client.post("/observers", json=HOME, headers=alice).json()["owner_id"] == me["id"]
+
+
+# --- Satellite catalog: anyone may read it, only admins may change it --------------------------------
+
+
+NEW_SAT = {**ISS_EXAMPLE, "OBJECT_NAME": "TEST SAT", "NORAD_CAT_ID": 99999}
+
+
+@pytest.mark.parametrize(
+    "method, path, body",
+    [
+        ("post", "/satellites", NEW_SAT),
+        ("patch", "/satellites/25544", {"OBJECT_NAME": "X"}),
+        ("delete", "/satellites/25544", None),
+        ("post", "/satellites/import", {"group": "stations"}),
+    ],
+)
+def test_catalog_changes_are_admin_only(db, make_user, method, path, body):
+    app.dependency_overrides[get_fetcher] = lambda: lambda group: pytest.fail("a refused import must not contact CelesTrak")
+    assert client.request(method.upper(), path, json=body).status_code == 401
+    r = client.request(method.upper(), path, json=body, headers=make_user("alice"))
+    assert r.status_code == 403 and r.json()["code"] == "admin_only"
+
+
+def test_catalog_reads_are_public(db):
+    for path in ["/satellites", "/satellites/25544", "/satellites/25544/position"]:
+        assert client.get(path).status_code in (200, 422)  # 422: the seed's orbit data may be too old to locate
+
+
+def test_admin_can_change_the_catalog(db, make_user):
+    assert client.delete("/satellites/25544", headers=make_user("boss", "admin")).status_code == 204
+
+
+def test_demoted_admin_loses_access_immediately(db, make_user):
+    headers = make_user("boss", "admin")
+    db.scalar(select(UserModel).where(UserModel.username == "boss")).role = "user"
+    db.flush()
+    assert client.delete("/satellites/25544", headers=headers).status_code == 403
