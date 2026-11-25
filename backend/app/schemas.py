@@ -194,3 +194,46 @@ class ImportResult(BaseModel):
     unchanged: int = Field(description="Existing satellites whose stored element set is as new or newer")
     skipped: int = Field(description="Records rejected by validation")
     skipped_examples: list[SkippedRecord] = Field(description="Up to 10 rejected records and why")
+
+
+# --- Accounts -------------------------------------------------------------------
+
+Username = Annotated[str, Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_.-]+$")]
+Email = Annotated[str, Field(min_length=1, max_length=254)]  # deliberately no format check
+Password = Annotated[str, Field(min_length=8, max_length=128)]  # not stripped: spaces are part of the password
+
+
+class UserCreate(BaseModel):
+    # extra="forbid" so a client can't choose its own role.
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"example": {"username": "alice", "email": "alice@example.com", "password": "correct horse battery"}},
+    )
+
+    username: Username
+    email: Email
+    password: Password
+
+
+class LoginRequest(BaseModel):
+    # Plain strings: a wrong value is just bad credentials (401), not a validation error.
+    model_config = ConfigDict(json_schema_extra={"example": {"login": "alice", "password": "correct horse battery"}})
+
+    login: str = Field(description="Username or email")
+    password: str
+
+
+class User(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    email: str
+    role: Literal["user", "admin"]
+    created_at: datetime
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int = Field(description="Seconds until the token expires")

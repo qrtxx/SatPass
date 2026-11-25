@@ -41,3 +41,20 @@ def db():
         app.dependency_overrides.clear()
         session.close()
         transaction.rollback()
+
+
+@pytest.fixture
+def make_user(db):
+    """make_user("alice", role="user") adds a user (password "password123") and returns headers with its token."""
+    from app.models import UserModel
+    from app.security import create_access_token, hash_password
+
+    password_hash = hash_password("password123")
+
+    def make(username, role="user"):
+        user = UserModel(username=username, email=f"{username}@example.com", password_hash=password_hash, role=role)
+        db.add(user)
+        db.flush()
+        return {"Authorization": f"Bearer {create_access_token(user.id)}"}
+
+    return make

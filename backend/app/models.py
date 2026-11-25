@@ -101,3 +101,20 @@ class CatalogImportModel(Base):
     updated: Mapped[int]
     unchanged: Mapped[int]
     skipped: Mapped[int]
+
+
+class UserModel(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'admin')", name="role_valid"),
+        # "Alice" and "alice" are the same person, for usernames and emails alike.
+        Index("uq_users_username_lower", text("lower(username)"), unique=True),
+        Index("uq_users_email_lower", text("lower(email)"), unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(32))
+    email: Mapped[str] = mapped_column(String(254))
+    password_hash: Mapped[str] = mapped_column(String(255))  # Argon2id hash, never the password itself
+    role: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())

@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.exc import IntegrityError
 
 from app.errors import DomainError
-from app.routers import observers, satellites
+from app.routers import auth, observers, satellites
 
 app = FastAPI(
     title="SatPass API",
@@ -11,6 +11,7 @@ app = FastAPI(
     description="Predicts when satellites pass over an observer, from CelesTrak orbital elements. "
     "Data is stored in PostgreSQL.",
 )
+app.include_router(auth.router)
 app.include_router(satellites.router)
 app.include_router(observers.router)
 
