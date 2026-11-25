@@ -68,7 +68,13 @@ copy .env.example .env
 notepad .env
 ```
 
-Replace `CHANGE_ME` with the password from step 3, on both lines, then save.
+Replace `CHANGE_ME` with the password from step 3, on both database lines. Then replace the `JWT_SECRET` value with a long random secret; it signs the login tokens. Generate one with:
+
+```powershell
+.venv\Scripts\python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Save the file.
 
 ### 6. Create the tables and load the sample data
 
@@ -76,7 +82,13 @@ Replace `CHANGE_ME` with the password from step 3, on both lines, then save.
 .venv\Scripts\python -m alembic upgrade head
 ```
 
-This runs the migrations in `backend/alembic/versions/`. They create the tables and add 20 satellites plus one observer, Almaty (id 1), who watches the ISS.
+This runs the migrations in `backend/alembic/versions/`. They create the tables and add 20 satellites, an **admin** account, and one location, Almaty, owned by the admin and watching the ISS.
+
+Then give the admin a password (it can't log in until you do). You type it twice; nothing is shown:
+
+```powershell
+.venv\Scripts\python -m app.cli set-password admin
+```
 
 ### 7. Start the server
 
@@ -95,11 +107,11 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173**. The UI sends its requests to `/api/...`, and Vite forwards them to the API on port 8000, so no CORS setup is needed. If the API runs on another port, start the UI with `$env:API_URL="http://127.0.0.1:8001"; npm run dev`.
+Open **http://localhost:5173**. Browsing satellites works without an account. To predict passes and save locations, press **Sign up** (or **Log in** as `admin`). The UI sends its requests to `/api/...`, and Vite forwards them to the API on port 8000, so no CORS setup is needed. If the API runs on another port, start the UI with `$env:API_URL="http://127.0.0.1:8001"; npm run dev`.
 
 ### 9. Load live orbit data
 
-The sample data is a snapshot from 4 Nov 2026, so predictions from "now" are inaccurate or skipped. To get current data, open the **Satellites** tab, choose a group and press **Update orbit data**:
+The sample data is a snapshot from 4 Nov 2026, so predictions from "now" are inaccurate or skipped. To get current data, log in as **admin**, open **Satellites**, choose a group and press **Update orbit data** (only admins see it):
 
 - `stations`: the ISS, the Chinese station and a few others. Takes a few seconds.
 - `active`: every working satellite (about 17,000). The download takes about a minute.
@@ -131,6 +143,9 @@ The steps are the same, with these differences:
 | Message | Fix |
 |---|---|
 | `uvicorn` / `alembic` / `pytest` is not recognized | Run it through the virtual environment, as above: `.venv\Scripts\python -m uvicorn ...` |
+| `JWT_SECRET must be set to at least 32 characters` | Add a `JWT_SECRET` line to `backend\.env` (step 5). |
+| `Wrong username/email or password` for `admin` | The admin has no password yet: run `.venv\Scripts\python -m app.cli set-password admin` (step 6). |
+| The UI suddenly shows the login page | Your login expired (after 60 minutes, `JWT_EXPIRE_MINUTES`); log in again. |
 | `DATABASE_URL is not set` | `backend\.env` is missing; do step 5. Run commands from inside `backend`. |
 | `password authentication failed for user "satpass"` | The password in `.env` doesn't match the one from step 3. |
 | `connection refused` / `Connection timed out` | PostgreSQL isn't running. In PowerShell as admin: `Start-Service postgresql-x64-17` |
