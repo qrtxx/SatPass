@@ -11,6 +11,21 @@ class DomainError(Exception):
         self.headers = headers
 
 
+class Unauthorized(DomainError):
+    """Not logged in, or the token is bad. HTTP requires 401 responses to say which scheme to use."""
+
+    status_code = 401
+
+    def __init__(self, code: str, message: str):
+        super().__init__(code, message, headers={"WWW-Authenticate": "Bearer"})
+
+
+class Forbidden(DomainError):
+    """Logged in, but not allowed to do this."""
+
+    status_code = 403
+
+
 class NotFound(DomainError):
     status_code = 404
 

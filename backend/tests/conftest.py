@@ -12,6 +12,7 @@ if not TEST_URL:
 if TEST_URL == dotenv_values().get("DATABASE_URL"):
     raise RuntimeError("TEST_DATABASE_URL must not be the main database: the tests wipe it")
 os.environ["DATABASE_URL"] = TEST_URL
+os.environ.setdefault("JWT_SECRET", "test-secret-" + "0" * 40)  # tests run even without a secret in .env
 
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402

@@ -7,3 +7,5 @@ sqlalchemy==2.1.9
 alembic==1.20.1
 psycopg[binary]==3.3.9
 python-dotenv==1.2.4
+pyjwt==2.15.1
+argon2-cffi==25.1.0
