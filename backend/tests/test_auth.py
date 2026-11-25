@@ -131,3 +131,14 @@ def test_cli_rejects_mismatched_passwords(monkeypatch, capsys):
     monkeypatch.setattr(cli, "getpass", lambda prompt: next(answers))
     assert cli.main(["set-password", "admin"]) == 1
     assert "don't match" in capsys.readouterr().err
+
+
+def test_an_email_cannot_take_over_a_username_at_login(db):
+    # Emails aren't format-checked, so "alice" is a valid email. A username match must win at login.
+    client.post("/auth/register", json={"username": "bob", "email": "alice", "password": "bob-password-1"})
+    client.post("/auth/register", json=ALICE)
+    r = login("alice", "password123")
+    assert r.status_code == 200
+    me = client.get("/auth/me", headers={"Authorization": f"Bearer {r.json()['access_token']}"}).json()
+    assert me["username"] == "alice"
+    assert login("bob", "bob-password-1").status_code == 200  # Bob still logs in with his username

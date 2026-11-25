@@ -1,7 +1,7 @@
 """Accounts: registration, login and passwords."""
 
 from pydantic import TypeAdapter
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.errors import Conflict, NotFound, Unauthorized
@@ -13,17 +13,24 @@ from app.security import ACCESS_TOKEN_MINUTES, create_access_token, hash_passwor
 _DUMMY_HASH = hash_password("timing-equalizer")
 
 
+def _same(column, value: str):
+    # Both sides lowercased by PostgreSQL, the same way as the unique indexes (Python's lower() can differ for non-ASCII).
+    return func.lower(column) == func.lower(value)
+
+
 def find_user(db: Session, login: str) -> UserModel | None:
-    """By username or email, ignoring case."""
-    login = login.lower()
-    return db.scalar(select(UserModel).where(or_(func.lower(UserModel.username) == login, func.lower(UserModel.email) == login)))
+    """By username, or else by email, ignoring case. A username match wins: emails aren't format-checked,
+    so someone could register the email "alice" and would otherwise shadow the user named alice."""
+    return db.scalar(select(UserModel).where(_same(UserModel.username, login))) or db.scalar(
+        select(UserModel).where(_same(UserModel.email, login))
+    )
 
 
 def register_user(db: Session, data: UserCreate) -> UserModel:
     # The unique indexes on lower(username)/lower(email) are the final guard; these give readable errors first.
-    if db.scalar(select(UserModel.id).where(func.lower(UserModel.username) == data.username.lower())):
+    if db.scalar(select(UserModel.id).where(_same(UserModel.username, data.username))):
         raise Conflict("username_taken", f"The username '{data.username}' is already taken")
-    if db.scalar(select(UserModel.id).where(func.lower(UserModel.email) == data.email.lower())):
+    if db.scalar(select(UserModel.id).where(_same(UserModel.email, data.email))):
         raise Conflict("email_taken", "An account with this email already exists")
     user = UserModel(username=data.username, email=data.email, password_hash=hash_password(data.password))
     db.add(user)
@@ -41,7 +48,7 @@ def login(db: Session, data: LoginRequest) -> Token:
 
 
 def set_password(db: Session, username: str, password: str) -> None:
-    user = db.scalar(select(UserModel).where(func.lower(UserModel.username) == username.lower()))
+    user = db.scalar(select(UserModel).where(_same(UserModel.username, username)))
     if user is None:
         raise NotFound("user_not_found", f"No user named '{username}'")
     user.password_hash = hash_password(TypeAdapter(Password).validate_python(password))

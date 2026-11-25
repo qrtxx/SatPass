@@ -2,11 +2,17 @@ import { useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../useAuth.js'
 
-// Where to go after logging in: the ?next= page, but only within this site (never "//other.site").
+// Where to go after logging in: the ?next= page, but only within this site. Resolved the way the browser
+// would, because tricks like "/\evil.com" or "/<tab>/evil.com" pass a simple "starts with /" check.
+function safeNextPage(next, origin = window.location.origin) {
+  if (!next) return '/satellites'
+  const url = new URL(next, origin)
+  return url.origin === origin ? url.pathname + url.search + url.hash : '/satellites'
+}
+
 function useNextPage() {
   const [params] = useSearchParams()
-  const next = params.get('next')
-  return next && next.startsWith('/') && !next.startsWith('//') ? next : '/satellites'
+  return safeNextPage(params.get('next'))
 }
 
 // Shared by both forms: submit, show the API's error under the form, then go to the next page.
