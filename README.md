@@ -129,7 +129,10 @@ Each group can be updated once every 2 hours; CelesTrak blocks clients that down
 ```powershell
 .venv\Scripts\python -m alembic downgrade base
 .venv\Scripts\python -m alembic upgrade head
+.venv\Scripts\python -m app.cli set-password admin
 ```
+
+This deletes everything, including all accounts and their locations, and the admin's password has to be set again.
 
 ### macOS / Linux
 
