@@ -3,8 +3,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from app.main import app
-from app.models import ObserverModel, WatchlistEntry
+from app.models import ObserverModel, UserModel, WatchlistEntry
 from app.schemas import ISS_EXAMPLE
+from app.security import create_access_token
 
 client = TestClient(app)
 START = "2026-11-05T00:00:00Z"
@@ -13,7 +14,9 @@ NEW_SAT = {**ISS_EXAMPLE, "OBJECT_NAME": "TEST SAT", "NORAD_CAT_ID": 99999}
 
 @pytest.fixture(autouse=True)
 def fresh_data(db):
-    pass  # the db fixture (conftest.py) gives every test the seed data in a rolled-back transaction
+    # The db fixture (conftest.py) gives every test the seed data in a rolled-back transaction.
+    # These tests act as the seeded admin (user 1), who owns Almaty; permissions are tested in test_permissions.py.
+    client.headers["Authorization"] = f"Bearer {create_access_token(1)}"
 
 
 # --- Satellites ---------------------------------------------------------------
@@ -197,8 +200,12 @@ def test_data_is_saved_in_the_database(db):
 @pytest.mark.parametrize(
     "row",
     [
-        ObserverModel(name="Pole", latitude=95, longitude=0),  # CHECK latitude range
-        ObserverModel(name="ALMATY", latitude=0, longitude=0),  # unique lower(name)
+        ObserverModel(name="Pole", latitude=95, longitude=0, owner_id=1),  # CHECK latitude range
+        ObserverModel(name="ALMATY", latitude=0, longitude=0, owner_id=1),  # unique (owner_id, lower(name))
+        ObserverModel(name="X", latitude=0, longitude=0, owner_id=999),  # foreign key: no user 999
+        UserModel(username="ADMIN", email="a@x", password_hash="x"),  # unique lower(username)
+        UserModel(username="eve", email="ADMIN@SATPASS.LOCAL", password_hash="x"),  # unique lower(email)
+        UserModel(username="eve", email="e@x", password_hash="x", role="root"),  # CHECK role
         WatchlistEntry(observer_id=1, norad_id=1),  # foreign key: no satellite 1
         WatchlistEntry(observer_id=1, norad_id=25544),  # primary key: already watched
     ],

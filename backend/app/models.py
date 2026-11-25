@@ -56,11 +56,12 @@ class ObserverModel(Base):
         CheckConstraint("elevation_m BETWEEN -500 AND 9000", name="elevation_range"),
         CheckConstraint("min_elevation_deg BETWEEN 0 AND 90", name="min_elevation_range"),
         CheckConstraint("length(trim(name)) > 0", name="name_not_blank"),
-        # "Almaty" and "almaty" count as the same name.
-        Index("uq_observers_name_lower", text("lower(name)"), unique=True),
+        # Each user's location names are unique, ignoring case ("Home" and "home" clash); two users may both have "Home".
+        Index("uq_observers_owner_name", "owner_id", text("lower(name)"), unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(80))
     latitude: Mapped[float] = mapped_column(Double)
     longitude: Mapped[float] = mapped_column(Double)
@@ -71,6 +72,7 @@ class ObserverModel(Base):
     entries: Mapped[list["WatchlistEntry"]] = relationship(
         back_populates="observer", cascade="all, delete-orphan", passive_deletes=True, order_by="WatchlistEntry.added_at"
     )
+    owner: Mapped["UserModel"] = relationship(back_populates="observers")
 
     @property
     def watchlist(self) -> list[int]:
@@ -118,3 +120,6 @@ class UserModel(Base):
     password_hash: Mapped[str] = mapped_column(String(255))  # Argon2id hash, never the password itself
     role: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())
+
+    # Deleting a user deletes their locations (ON DELETE CASCADE), and through them their watchlists.
+    observers: Mapped[list[ObserverModel]] = relationship(back_populates="owner", cascade="all, delete-orphan", passive_deletes=True)

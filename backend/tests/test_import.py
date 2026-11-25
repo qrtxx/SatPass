@@ -9,6 +9,7 @@ from app.errors import BadGateway
 from app.main import app
 from app.models import CatalogImportModel, SatelliteModel
 from app.schemas import ISS_EXAMPLE
+from app.security import create_access_token
 from app.services import catalog_import
 from app.services.celestrak import get_fetcher
 
@@ -22,7 +23,8 @@ NEW_SAT = {**ISS_EXAMPLE, "NORAD_CAT_ID": 99999, "OBJECT_NAME": "NEW SAT"}
 
 @pytest.fixture(autouse=True)
 def fresh_data(db):
-    pass  # every test runs on the seed data in a rolled-back transaction
+    # Every test runs on the seed data in a rolled-back transaction, as the seeded admin (user 1).
+    client.headers["Authorization"] = f"Bearer {create_access_token(1)}"
 
 
 def run_import(records, group="stations"):

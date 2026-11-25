@@ -1,12 +1,14 @@
-"""Observers (locations), their watchlists, and pass prediction for a watchlist."""
+"""Observers (locations), their watchlists, and pass prediction.
+
+Every observer belongs to a user. Users reach only their own; admins reach all (see get_observer)."""
 
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.errors import Conflict, NotFound, RuleViolation
-from app.models import ObserverModel, SatelliteModel, WatchlistEntry
+from app.errors import Conflict, Forbidden, NotFound, RuleViolation
+from app.models import ObserverModel, SatelliteModel, UserModel, WatchlistEntry
 from app.schemas import ObserverCreate, ObserverUpdate, PassPoint, PassReport, PeakPoint, SatellitePass, as_utc
 from app.services import orbit
 from app.services.satellites import MAX_ORBIT_AGE_DAYS, STALE_AFTER_DAYS, get_satellite, orbit_age_days
@@ -15,9 +17,9 @@ from app.services.satellites import MAX_ORBIT_AGE_DAYS, STALE_AFTER_DAYS, get_sa
 MAX_WATCHLIST = 10
 
 
-def _check_name_free(db: Session, name: str, own_id: int | None = None) -> None:
-    # The unique index on lower(name) is the final guard; this check gives a readable error first.
-    query = select(ObserverModel).where(func.lower(ObserverModel.name) == name.lower())
+def _check_name_free(db: Session, owner_id: int, name: str, own_id: int | None = None) -> None:
+    # Names are unique per owner. The unique index on (owner_id, lower(name)) is the final guard; this gives a readable error.
+    query = select(ObserverModel).where(ObserverModel.owner_id == owner_id, func.lower(ObserverModel.name) == name.lower())
     if own_id is not None:
         query = query.where(ObserverModel.id != own_id)
     clash = db.scalar(query)
@@ -25,52 +27,62 @@ def _check_name_free(db: Session, name: str, own_id: int | None = None) -> None:
         raise Conflict("observer_exists", f"An observer named '{clash.name}' already exists")
 
 
-def list_observers(db: Session) -> list[ObserverModel]:
-    return list(db.scalars(select(ObserverModel).order_by(ObserverModel.id)))
+def is_admin(user: UserModel) -> bool:
+    return user.role == "admin"
 
 
-def get_observer(db: Session, observer_id: int) -> ObserverModel:
+def list_observers(db: Session, user: UserModel) -> list[ObserverModel]:
+    query = select(ObserverModel).order_by(ObserverModel.id)
+    if not is_admin(user):
+        query = query.where(ObserverModel.owner_id == user.id)
+    return list(db.scalars(query))
+
+
+def get_observer(db: Session, user: UserModel, observer_id: int) -> ObserverModel:
+    """The one ownership check: every other function reaches an observer through here."""
     obs = db.get(ObserverModel, observer_id)
     if obs is None:
         raise NotFound("observer_not_found", f"No observer with id {observer_id}")
+    if obs.owner_id != user.id and not is_admin(user):
+        raise Forbidden("not_owner", "This location belongs to another user")
     return obs
 
 
-def create_observer(db: Session, data: ObserverCreate) -> ObserverModel:
-    _check_name_free(db, data.name)
-    obs = ObserverModel(**data.model_dump())
+def create_observer(db: Session, user: UserModel, data: ObserverCreate) -> ObserverModel:
+    _check_name_free(db, user.id, data.name)
+    obs = ObserverModel(**data.model_dump(), owner_id=user.id)
     db.add(obs)
     db.commit()
     return obs
 
 
-def update_observer(db: Session, observer_id: int, patch: ObserverUpdate) -> ObserverModel:
-    obs = get_observer(db, observer_id)
+def update_observer(db: Session, user: UserModel, observer_id: int, patch: ObserverUpdate) -> ObserverModel:
+    obs = get_observer(db, user, observer_id)
     changes = patch.model_dump(exclude_unset=True, exclude_none=True)
     if not changes:
         raise RuleViolation("empty_update", "Send at least one field to change")
     if "name" in changes:
-        _check_name_free(db, changes["name"], own_id=observer_id)
+        _check_name_free(db, obs.owner_id, changes["name"], own_id=observer_id)  # the owner's names, even when an admin edits
     for field, value in changes.items():
         setattr(obs, field, value)
     db.commit()
     return obs
 
 
-def delete_observer(db: Session, observer_id: int) -> None:
-    db.delete(get_observer(db, observer_id))  # its watchlist entries go with it
+def delete_observer(db: Session, user: UserModel, observer_id: int) -> None:
+    db.delete(get_observer(db, user, observer_id))  # its watchlist entries go with it
     db.commit()
 
 
 # --- Watchlist ----------------------------------------------------------------
 
 
-def get_watchlist(db: Session, observer_id: int) -> list[SatelliteModel]:
-    return [entry.satellite for entry in get_observer(db, observer_id).entries]
+def get_watchlist(db: Session, user: UserModel, observer_id: int) -> list[SatelliteModel]:
+    return [entry.satellite for entry in get_observer(db, user, observer_id).entries]
 
 
-def add_to_watchlist(db: Session, observer_id: int, norad_id: int) -> SatelliteModel:
-    obs = get_observer(db, observer_id)
+def add_to_watchlist(db: Session, user: UserModel, observer_id: int, norad_id: int) -> SatelliteModel:
+    obs = get_observer(db, user, observer_id)
     sat = get_satellite(db, norad_id)
     if norad_id in obs.watchlist:
         raise Conflict("already_watched", f"{sat.OBJECT_NAME} is already on this watchlist")
@@ -81,8 +93,8 @@ def add_to_watchlist(db: Session, observer_id: int, norad_id: int) -> SatelliteM
     return sat
 
 
-def remove_from_watchlist(db: Session, observer_id: int, norad_id: int) -> None:
-    get_observer(db, observer_id)
+def remove_from_watchlist(db: Session, user: UserModel, observer_id: int, norad_id: int) -> None:
+    get_observer(db, user, observer_id)
     entry = db.get(WatchlistEntry, (observer_id, norad_id))
     if entry is None:
         raise NotFound("not_watched", f"Satellite {norad_id} is not on this watchlist")
@@ -100,10 +112,17 @@ def _point(look: orbit.LookFn, ts: float) -> PassPoint:
 
 
 def predict_passes(
-    db: Session, observer_id: int, start: datetime | None, hours: int, min_elevation: float | None, norad_ids: list[int] | None = None
+    db: Session,
+    user: UserModel,
+    observer_id: int,
+    start: datetime | None,
+    hours: int,
+    min_elevation: float | None,
+    norad_ids: list[int] | None = None,
 ) -> PassReport:
-    """Passes of the given satellites (any, watched or not), or of the observer's watchlist when none are given."""
-    obs = get_observer(db, observer_id)
+    """Passes of the given satellites (any, watched or not), or of the observer's watchlist when none are given.
+    The observer must be the user's own (or the user an admin); the satellites can be any."""
+    obs = get_observer(db, user, observer_id)
     if norad_ids:
         satellites = [get_satellite(db, norad_id) for norad_id in dict.fromkeys(norad_ids)]
     elif obs.entries:

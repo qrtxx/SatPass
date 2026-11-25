@@ -131,6 +131,7 @@ class Observer(ObserverCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    owner_id: int = Field(description="The user this location belongs to")
     watchlist: list[int] = Field(default_factory=list, description="NORAD IDs of watched satellites")
 
 
