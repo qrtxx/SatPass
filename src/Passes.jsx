@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router'
 import { api, formatDuration, formatPassTime, formatTime } from './api.js'
 
-export default function Passes({ observer, source, onSourceChange, selected, onOpen, autoPredict, onAutoPredicted }) {
+export default function Passes({ observer, observersLoaded, source, onSourceChange, selected, onOpen, autoPredict, onAutoPredicted }) {
   const [start, setStart] = useState('') // empty means "now"
   const [hours, setHours] = useState('24')
   const [minElevation, setMinElevation] = useState('')
@@ -44,14 +45,25 @@ export default function Passes({ observer, source, onSourceChange, selected, onO
     requestPasses()
   }
 
-  // Arriving from the Satellites tab's "Predict passes": run it once with the default window.
+  // Arriving from the Satellites page's "Predict passes": run it once with the default window.
   useEffect(() => {
     if (!autoPredict || !observer) return
     onAutoPredicted()
     requestPasses()
   }, [autoPredict, observer]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!observer) return <p className="empty card">Add a location in the Locations tab first.</p>
+  if (!observer)
+    return (
+      <p className="empty card">
+        {observersLoaded ? (
+          <>
+            Add a location in <Link to="/locations">My locations</Link> first.
+          </>
+        ) : (
+          'Loading your locations…'
+        )}
+      </p>
+    )
 
   return (
     <section className="card">
@@ -70,8 +82,8 @@ export default function Passes({ observer, source, onSourceChange, selected, onO
             ? `Watched from ${observer.name}: ${watchlist.map((s) => s.OBJECT_NAME).join(', ')}`
             : `${observer.name} isn't watching any satellites yet. Open a satellite and press Watch, or use Selected.`
           : noneSelected
-            ? 'No satellites selected: tick some in the Satellites tab.'
-            : `${selected.size} satellite${selected.size === 1 ? '' : 's'} ticked in the Satellites tab, from ${observer.name}.`}
+            ? 'No satellites selected: tick some on the Satellites page.'
+            : `${selected.size} satellite${selected.size === 1 ? '' : 's'} ticked on the Satellites page, from ${observer.name}.`}
       </p>
 
       <form onSubmit={predict} className="row">

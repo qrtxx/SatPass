@@ -80,24 +80,33 @@ select {
   border-radius: 6px;
   padding: 6px 8px;
 }
-button {
+button,
+.button {
+  display: inline-block;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 12px;
   cursor: pointer;
+  color: var(--text);
+  text-decoration: none;
 }
-button:hover:not(:disabled) {
+button:hover:not(:disabled),
+.button:hover {
   border-color: var(--accent);
 }
 button:disabled {
   opacity: 0.5;
   cursor: default;
 }
-button.primary {
+button.primary,
+.button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);
+}
+a {
+  color: var(--accent);
 }
 button.danger {
   color: var(--danger);
@@ -137,31 +146,100 @@ label > select {
 .topbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
-  gap: 16px 24px;
+  align-items: center;
+  gap: 12px 24px;
   margin-bottom: 16px;
 }
 .topbar h1 {
   font-size: 1.5rem;
-  letter-spacing: 0.02em;
 }
-.topbar nav {
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  text-decoration: none;
+}
+.nav {
   display: flex;
   gap: 4px;
   flex: 1;
 }
 .tab {
-  border: none;
-  background: none;
   padding: 8px 12px;
   border-bottom: 2px solid transparent;
-  border-radius: 0;
   color: var(--muted);
+  text-decoration: none;
+}
+.tab:hover {
+  color: var(--text);
 }
 .tab[aria-current='page'] {
   color: var(--text);
   font-weight: 600;
   border-bottom-color: var(--accent);
+}
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.location {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.user-menu {
+  position: relative;
+}
+.user-menu[open] > :not(summary) {
+  display: block;
+  margin-top: 4px;
+}
+.menu-button {
+  display: none;
+  margin-left: auto;
+}
+@media (max-width: 799px) {
+  .menu-button {
+    display: inline-block;
+  }
+  .nav {
+    display: none;
+    flex-basis: 100%;
+    flex-direction: column;
+  }
+  .nav.open {
+    display: flex;
+  }
+  .tab[aria-current='page'] {
+    border-bottom-color: transparent;
+    border-left: 3px solid var(--accent);
+  }
+}
+
+/* --- Placeholder and account pages ---------------------------------------- */
+.coming-soon {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+.placeholder p {
+  max-width: 60ch;
+}
+.auth-card {
+  max-width: 380px;
+  margin: 24px auto;
+}
+.stack {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
 }
 .layout {
   display: grid;

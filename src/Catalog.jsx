@@ -5,10 +5,8 @@ const PAGE = 50
 // CelesTrak groups the API accepts; "active" is every working satellite (~17k).
 const GROUPS = ['stations', 'visual', 'active', 'weather', 'science', 'gps-ops', 'galileo', 'starlink']
 
-export default function Catalog({ observer, selected, onToggle, onClear, onPredict, onOpen, version }) {
-  const [input, setInput] = useState('')
-  const [query, setQuery] = useState('') // the search actually applied
-  const [page, setPage] = useState(0)
+// query, page (0-based), onSearch and onPage come from the page, which keeps them in the URL.
+export default function Catalog({ observer, selected, onToggle, onClear, onPredict, onOpen, version, query, page, onSearch, onPage }) {
   const [result, setResult] = useState(null) // { items, total }
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -56,18 +54,19 @@ export default function Catalog({ observer, selected, onToggle, onClear, onPredi
   return (
     <section className="card">
       <div className="toolbar">
+        {/* Keyed by the search, so Back/Forward refill the box with the search in the URL. */}
         <form
+          key={query}
           className="row"
           role="search"
           onSubmit={(e) => {
             e.preventDefault()
-            setQuery(input.trim())
-            setPage(0)
+            onSearch(new FormData(e.currentTarget).get('q').trim())
           }}
         >
           <label>
             Name or NORAD ID
-            <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="e.g. iss, starlink, 25544" />
+            <input name="q" defaultValue={query} maxLength={60} placeholder="e.g. iss, starlink, 25544" />
           </label>
           <button>Search</button>
         </form>
@@ -154,13 +153,13 @@ export default function Catalog({ observer, selected, onToggle, onClear, onPredi
 
       {result && result.total > 0 && (
         <div className="pager">
-          <button disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+          <button disabled={page === 0} onClick={() => onPage(page - 1)}>
             ‹ Previous
           </button>
           <span className="mono">
             {formatCount(from)}–{formatCount(to)} of {formatCount(result.total)}
           </span>
-          <button disabled={to >= result.total} onClick={() => setPage((p) => p + 1)}>
+          <button disabled={to >= result.total} onClick={() => onPage(page + 1)}>
             Next ›
           </button>
         </div>

@@ -4,11 +4,12 @@ SatPass predicts when satellites such as the ISS, Hubble and the Chinese space s
 
 The backend is a REST API built with **FastAPI**, **PostgreSQL**, **SQLAlchemy** and **Alembic**. It is in [`backend/`](backend/). See [`backend/README.md`](backend/README.md) for the endpoints, business rules, database schema and a Swagger test checklist.
 
-A **React** (Vite) UI in [`src/`](src/) uses that API:
-- **Satellites:** browse and search the whole catalog page by page, tick up to 20 satellites and press **Predict passes**, and update orbit data from CelesTrak.
-- **Satellite details:** click a satellite's name to see its orbit, where it is now (refreshed every 5 seconds), its next passes over your location, and Watch and Delete buttons.
-- **Passes:** predict for the ticked satellites or for the location's watchlist, over a chosen time window.
-- **Locations:** add, edit and delete them.
+A **React** (Vite, react-router) UI in [`src/`](src/) uses that API. Every page has its own URL:
+- **`/satellites`:** browse and search the whole catalog page by page, tick up to 20 satellites and press **Predict passes**, and update orbit data from CelesTrak. The search and page are in the URL (`/satellites?q=starlink&page=3`).
+- **Satellite details:** click a satellite's name on any page to see its orbit, where it is now (refreshed every 5 seconds), its next passes over your location, and Watch and Delete buttons. The details have their own link, for example `?sat=25544`.
+- **`/passes`:** predict for the ticked satellites or for the location's watchlist, over a chosen time window.
+- **`/locations`:** add, edit and delete your locations.
+- **Coming soon:** `/` (Tonight's visible passes), `/globe`, `/login`, `/register` and `/account`. Their pages are already there as placeholders.
 
 Errors from the API, such as validation errors or a duplicate name, are shown on the page.
 

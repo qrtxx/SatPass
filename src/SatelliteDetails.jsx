@@ -148,7 +148,7 @@ export default function SatelliteDetails({ noradId, observer, selected, onToggle
           {actionError && <p className="error">{actionError}</p>}
 
           <h3>Next passes over {observer?.name ?? 'your location'} (24 h)</h3>
-          {!observer && <p className="muted">Add a location in the Locations tab to see passes.</p>}
+          {!observer && <p className="muted">Add a location in My locations to see passes.</p>}
           {passesError && <p className="error">{passesError}</p>}
           {report && report.warnings.map((w) => <p key={w} className="warning">{w}</p>)}
           {report && report.passes.length === 0 && (
