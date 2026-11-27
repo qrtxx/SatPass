@@ -32,10 +32,8 @@ def is_admin(user: UserModel) -> bool:
 
 
 def list_observers(db: Session, user: UserModel) -> list[ObserverModel]:
-    query = select(ObserverModel).order_by(ObserverModel.id)
-    if not is_admin(user):
-        query = query.where(ObserverModel.owner_id == user.id)
-    return list(db.scalars(query))
+    """The user's own locations, admins included; admins see other users' locations on the admin user page."""
+    return list(db.scalars(select(ObserverModel).where(ObserverModel.owner_id == user.id).order_by(ObserverModel.id)))
 
 
 def get_observer(db: Session, user: UserModel, observer_id: int) -> ObserverModel:

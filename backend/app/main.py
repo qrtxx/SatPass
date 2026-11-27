@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.exc import IntegrityError
 
 from app.errors import DomainError
-from app.routers import auth, observers, places, satellites
+from app.routers import admin, auth, observers, places, satellites
 
 app = FastAPI(
     title="SatPass API",
@@ -15,6 +15,7 @@ app.include_router(auth.router)
 app.include_router(satellites.router)
 app.include_router(observers.router)
 app.include_router(places.router)
+app.include_router(admin.router)
 
 
 @app.exception_handler(DomainError)

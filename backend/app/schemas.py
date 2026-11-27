@@ -259,3 +259,37 @@ class Place(BaseModel):
 
 class NearestPlace(Place):
     distance_km: float
+
+
+# --- Admin -----------------------------------------------------------------------
+
+
+class AdminUser(User):
+    location_count: int
+
+
+class AdminUserDetail(User):
+    locations: list[Observer]
+
+
+class RoleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "admin"]
+
+
+class ImportSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    group_name: str
+    fetched_at: datetime
+    added: int
+    updated: int
+
+
+class AdminStats(BaseModel):
+    users: int
+    admins: int
+    satellites: int
+    places: int
+    imports: list[ImportSummary] = Field(description="Last import of each CelesTrak group")

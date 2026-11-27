@@ -51,7 +51,9 @@ def test_missing_observer_is_still_404(db, make_user):
 def test_admin_can_manage_any_observer(db, make_user):
     alice, admin = make_user("alice"), make_user("boss", "admin")
     obs_id = client.post("/observers", json=HOME, headers=alice).json()["id"]
-    assert obs_id in [o["id"] for o in client.get("/observers", headers=admin).json()]
+    # Not mixed into the admin's own list (that's on the admin user page), but reachable by id.
+    assert obs_id not in [o["id"] for o in client.get("/observers", headers=admin).json()]
+    assert client.get(f"/observers/{obs_id}", headers=admin).status_code == 200
     assert client.patch(f"/observers/{obs_id}", json={"name": "Alice's home"}, headers=admin).status_code == 200
     assert client.delete(f"/observers/{obs_id}", headers=admin).status_code == 204
 
