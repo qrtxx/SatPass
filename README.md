@@ -10,7 +10,7 @@ A **React** (Vite, react-router) UI in [`src/`](src/) uses that API. Every page 
 - **`/passes`:** predict for the ticked satellites or for the location's watchlist, over a chosen time window.
 - **`/locations`:** your locations. Add one by searching a town or village, by using your current location, or by typing coordinates. Elevation is filled in from the place, or estimated from the nearest one.
 - **`/login`, `/register`:** accounts. Passes and locations need one; browsing satellites doesn't.
-- **`/admin`** (admins only): user and catalog counts, the last orbit-data imports, and every user. Each user has a page (`/admin/users/:id`) with their profile, role, locations and account deletion. Changing a role asks you to re-type your own password; deleting an account asks twice, with the buttons swapped on the second dialog.
+- **`/admin`** (admins only): user and catalog counts, the last orbit-data imports, and every user. Each user has a page (`/admin/users/:id`) with their profile, role, locations, and Delete/Restore buttons. Changing a role asks you to re-type your own password; deleting an account asks twice, with the buttons swapped on the second dialog. Deleting is a soft delete: the account can't log in but its data stays, and **Show deleted accounts** on `/admin` lists it so it can be restored.
 - **Coming soon:** `/` (Tonight's visible passes), `/globe` and `/account`. Their pages are already there as placeholders.
 
 Errors from the API, such as validation errors or a duplicate name, are shown on the page.

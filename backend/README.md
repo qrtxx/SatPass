@@ -35,14 +35,14 @@ users 1 ──< observers 1 ──< watchlist_entries >── 1 satellites
 
 | Table | Columns | Constraints |
 |---|---|---|
-| `users` | `id` (serial PK), `username`, `email`, `password_hash` (Argon2id, never the password), `role` (`user`/`admin`), `created_at` | Unique indexes on `lower(username)` and `lower(email)`; CHECK `role IN ('user','admin')` |
+| `users` | `id` (serial PK), `username`, `email`, `password_hash` (Argon2id, never the password), `role` (`user`/`admin`), `created_at`, `deleted_at` (null unless the account was deleted) | Unique indexes on `lower(username)` and `lower(email)`; CHECK `role IN ('user','admin')` |
 | `satellites` | `norad_cat_id` (PK, the NORAD catalog number), `object_name`, `epoch` (timestamptz), 9 orbital elements (double precision) | CHECK ranges for mean motion, eccentricity, inclination and the angles |
 | `observers` | `id` (serial PK), `owner_id` (FK → `users`), `name`, `latitude`, `longitude`, `elevation_m`, `min_elevation_deg`, `created_at` | CHECK coordinate ranges, non-blank name; unique index on (`owner_id`, `lower(name)`); FK `ON DELETE CASCADE` |
 | `watchlist_entries` | `observer_id` (FK), `norad_id` (FK), `added_at` | PK (`observer_id`, `norad_id`) so a satellite is watched once per observer; both FKs `ON DELETE CASCADE` |
 | `places` | `id` (GeoNames id), `name` (local spelling), `ascii_name`, `country_code`, `region`, `latitude`, `longitude`, `elevation_m`, `population` | Prefix indexes on `lower(name)` and `lower(ascii_name)` (`text_pattern_ops`), index on `latitude`. Filled by `python -m app.cli load-places`, not by migrations |
 | `catalog_imports` | `group_name` (PK), `fetched_at`, `received`, `added`, `updated`, `unchanged`, `skipped` | One row per CelesTrak group: the last successful import, used for the 2-hour limit |
 
-Relationships: one user owns many observers (locations). One observer has many watchlist entries, and one satellite appears in many watchlist entries. Together they form a many-to-many between observers and satellites. Deleting a user deletes their observers, deleting an observer deletes its watchlist, and deleting a satellite removes it from every watchlist.
+Relationships: one user owns many observers (locations). One observer has many watchlist entries, and one satellite appears in many watchlist entries. Together they form a many-to-many between observers and satellites. Deleting a user is a soft delete (see Admin), so their observers stay; the cascade only applies if a user row is really removed. Deleting an observer deletes its watchlist, and deleting a satellite removes it from every watchlist.
 
 Migrations are in `alembic/versions/`: 0001 creates the tables, 0002 loads the seed data, 0003 adds `catalog_imports`, 0004 adds `users` and an `admin` with an unusable password, 0005 gives every observer an owner (existing ones go to the admin), and 0006 adds the empty `places` table.
 
@@ -101,7 +101,7 @@ tests/                  pytest: orbit math, every endpoint, database constraints
 | `POST /observers` | 401 | ✅ (owner = you) | ✅ (owner = you) |
 | `GET`/`PATCH`/`DELETE /observers/{id}`, `…/watchlist`, `…/passes` (also with `norad_id`) | 401 | own ✅, others 403 `not_owner` | ✅ any |
 | `GET /places`, `GET /places/nearest` | ✅ | ✅ | ✅ |
-| `GET /admin/stats`, `GET /admin/users`, `GET`/`PATCH`/`DELETE /admin/users/{id}` | 401 | 403 `admin_only` | ✅ |
+| `GET /admin/stats`, `GET /admin/users`, `GET`/`PATCH`/`DELETE /admin/users/{id}`, `POST /admin/users/{id}/restore` | 401 | 403 `admin_only` | ✅ |
 
 **401 codes:**
 - `not_authenticated`: no token sent;
@@ -133,11 +133,14 @@ All admin-only:
 
 | Endpoint | Does |
 |---|---|
-| `GET /admin/stats` | Counts of users, admins, satellites and places, plus the last import of each CelesTrak group |
-| `GET /admin/users?search=` | Every user with their number of locations; `search` matches username or email |
-| `GET /admin/users/{id}` | One user with their locations |
+| `GET /admin/stats` | Counts of active users, active admins, deleted accounts, satellites and places, plus the last import of each CelesTrak group |
+| `GET /admin/users?search=&include_deleted=` | Every active user with their number of locations; `search` matches username or email; `include_deleted=true` lists deleted accounts too |
+| `GET /admin/users/{id}` | One user (deleted ones too) with their locations |
 | `PATCH /admin/users/{id}` `{"role": "admin" or "user", "password": "…"}` | Change the role. `password` is the acting admin's **own** password, re-typed to confirm; wrong → 403 `wrong_password` (not 401, so the admin isn't logged out) |
-| `DELETE /admin/users/{id}` | Delete the account; their locations and watchlists go too |
+| `DELETE /admin/users/{id}` | Delete the account (**soft delete**): `deleted_at` is set, the row and their locations stay. Already deleted → 409 `already_deleted` |
+| `POST /admin/users/{id}/restore` | Undo a delete; the user logs in again with their old password. Not deleted → 409 `not_deleted` |
+
+A deleted account can't log in (401), its existing tokens stop working (401 `invalid_token`), and its username and email stay taken, so nobody can register as them. Its role can't change until it is restored (409 `user_deleted`). Deleted admins don't count as admins.
 
 The last admin can't be demoted or deleted (409 `last_admin`), so nobody is locked out.
 
@@ -200,6 +203,7 @@ Reset to the seed data first (`alembic downgrade base`, then `alembic upgrade he
 | 40 | As alice: `GET /admin/users` | 403 `admin_only` |
 | 41 | As admin: `GET /admin/users`, then `GET /admin/users/{alice's id}` | 200, users with `location_count`; alice with her locations |
 | 42 | As admin, the only admin: `PATCH /admin/users/1` `{"role": "user", "password": "<your password>"}` | 409 `last_admin`; with a wrong password: 403 `wrong_password` |
-| 43 | As admin: `DELETE /admin/users/{alice's id}` | 204; her locations are gone too |
+| 43 | As admin: `DELETE /admin/users/{alice's id}`, then log in as alice | 204; login 401. `GET /admin/users?include_deleted=true` shows her with `deleted_at` |
+| 44 | As admin: `POST /admin/users/{alice's id}/restore`, then log in as alice | 200 with `deleted_at` null; login 200 |
 
 The first ISS pass in row 15 rises at 15:59:26 UTC in the SW and peaks at 61.5°. This matches satellite.js on the same data.

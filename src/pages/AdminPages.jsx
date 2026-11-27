@@ -9,6 +9,7 @@ export function AdminPage() {
   const [stats, setStats] = useState(null)
   const [users, setUsers] = useState(null)
   const [search, setSearch] = useState('')
+  const [showDeleted, setShowDeleted] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -17,15 +18,17 @@ export function AdminPage() {
 
   useEffect(() => {
     let current = true
-    const params = search.trim() ? `?${new URLSearchParams({ search: search.trim() })}` : ''
-    api(`/admin/users${params}`).then(
+    const params = new URLSearchParams()
+    if (search.trim()) params.set('search', search.trim())
+    if (showDeleted) params.set('include_deleted', 'true')
+    api(`/admin/users?${params}`).then(
       (list) => current && setUsers(list),
       (e) => current && setError(e.message),
     )
     return () => {
       current = false
     }
-  }, [search])
+  }, [search, showDeleted])
 
   return (
     <section className="card">
@@ -37,6 +40,7 @@ export function AdminPage() {
             {[
               ['Users', stats.users],
               ['Admins', stats.admins],
+              ['Deleted accounts', stats.deleted_users],
               ['Satellites', stats.satellites],
               ['Places', stats.places],
             ].map(([label, value]) => (
@@ -82,6 +86,10 @@ export function AdminPage() {
           Search by username or email
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} maxLength={100} />
         </label>
+        <label className="check-label">
+          <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} />
+          Show deleted accounts
+        </label>
       </div>
       {users && users.length === 0 && <p className="empty">No users match “{search.trim()}”.</p>}
       {users && users.length > 0 && (
@@ -98,9 +106,9 @@ export function AdminPage() {
             </thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id}>
+                <tr key={u.id} className={u.deleted_at ? 'muted' : undefined}>
                   <td>
-                    <Link to={`/admin/users/${u.id}`}>{u.username}</Link>
+                    <Link to={`/admin/users/${u.id}`}>{u.username}</Link> {u.deleted_at && <span className="coming-soon">deleted</span>}
                   </td>
                   <td>{u.email}</td>
                   <td>{u.role === 'admin' ? <span className="coming-soon">admin</span> : 'user'}</td>
@@ -123,7 +131,7 @@ export function AdminUserPage() {
   const { user: me, reloadUser, logout } = useAuth()
   const [user, setUser] = useState(null)
   const [error, setError] = useState('')
-  // Which confirmation is open: { kind: 'role', role } | { kind: 'delete' } | { kind: 'deleteForSure' } | null
+  // Which confirmation is open: { kind: 'role', role } | { kind: 'delete' } | { kind: 'deleteForSure' } | { kind: 'restore' } | null
   const [dialog, setDialog] = useState(null)
   const [dialogError, setDialogError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -183,6 +191,13 @@ export function AdminUserPage() {
       } else navigate('/admin')
     })
 
+  const restoreAccount = () =>
+    confirmDialog(async () => {
+      await api(`/admin/users/${id}/restore`, { method: 'POST' })
+      setDialog(null)
+      await load()
+    })
+
   const deleteLocation = (o) =>
     confirm(`Delete ${user.username}'s location "${o.name}"?`) &&
     run(async () => {
@@ -203,7 +218,8 @@ export function AdminUserPage() {
       {user && (
         <>
           <h2>
-            {user.username} {user.role === 'admin' && <span className="coming-soon">admin</span>}
+            {user.username} {user.role === 'admin' && <span className="coming-soon">admin</span>}{' '}
+            {user.deleted_at && <span className="coming-soon">deleted</span>}
           </h2>
           <dl className="facts">
             <dt>Email</dt>
@@ -212,17 +228,50 @@ export function AdminUserPage() {
             <dd className="mono">{formatTime(user.created_at)}</dd>
             <dt>User id</dt>
             <dd className="mono">{user.id}</dd>
-          </dl>
-          <p className="actions">
-            {user.role === 'admin' ? (
-              <button onClick={() => openDialog({ kind: 'role', role: 'user' })}>Make regular user</button>
-            ) : (
-              <button onClick={() => openDialog({ kind: 'role', role: 'admin' })}>Make admin</button>
+            {user.deleted_at && (
+              <>
+                <dt>Deleted</dt>
+                <dd className="mono">{formatTime(user.deleted_at)}</dd>
+              </>
             )}
-            <button className="danger" onClick={() => openDialog({ kind: 'delete' })}>
-              Delete account
-            </button>
-          </p>
+          </dl>
+          {user.deleted_at ? (
+            <p className="actions">
+              <span className="muted">This account is deleted: it can't log in. Its data is kept.</span>
+              <button className="primary" onClick={() => openDialog({ kind: 'restore' })}>
+                Restore account
+              </button>
+            </p>
+          ) : (
+            <p className="actions">
+              {user.role === 'admin' ? (
+                <button onClick={() => openDialog({ kind: 'role', role: 'user' })}>Make regular user</button>
+              ) : (
+                <button onClick={() => openDialog({ kind: 'role', role: 'admin' })}>Make admin</button>
+              )}
+              <button className="danger" onClick={() => openDialog({ kind: 'delete' })}>
+                Delete account
+              </button>
+            </p>
+          )}
+
+          {dialog?.kind === 'restore' && (
+            <ConfirmDialog
+              key="restore"
+              title={`Restore ${user.username}'s account?`}
+              confirmLabel="Restore"
+              busy={busy}
+              onCancel={() => setDialog(null)}
+              onConfirm={restoreAccount}
+            >
+              <p>They'll be able to log in again, with their old password and locations.</p>
+              {dialogError && (
+                <p className="error" role="alert">
+                  {dialogError}
+                </p>
+              )}
+            </ConfirmDialog>
+          )}
 
           {dialog?.kind === 'role' && (
             <ConfirmDialog
@@ -260,18 +309,15 @@ export function AdminUserPage() {
               onCancel={() => setDialog(null)}
               onConfirm={() => openDialog({ kind: 'deleteForSure' })}
             >
-              <p>
-                Their {user.locations.length} location{user.locations.length === 1 ? '' : 's'} and watchlists will be deleted
-                too.
-              </p>
+              <p>They won't be able to log in. Their username and email stay taken.</p>
             </ConfirmDialog>
           )}
           {dialog?.kind === 'deleteForSure' && (
             // The second confirmation swaps the buttons, so clicking twice in the same spot doesn't delete.
             <ConfirmDialog
               key="deleteForSure"
-              title="Delete permanently?"
-              confirmLabel="Delete permanently"
+              title="Are you sure?"
+              confirmLabel="Delete account"
               danger
               cancelFirst={false}
               busy={busy}
@@ -280,7 +326,9 @@ export function AdminUserPage() {
             >
               <p>
                 <b>{user.username}</b>
-                {user.id === me.id && ' (that is you)'} and all their data will be removed. This can't be undone.
+                {user.id === me.id && ' (that is you)'} will be deleted.
+                {user.locations.length > 0 && ` Their ${user.locations.length} location${user.locations.length === 1 ? ' is' : 's are'} kept.`} An
+                admin can restore the account later.
               </p>
               {dialogError && (
                 <p className="error" role="alert">

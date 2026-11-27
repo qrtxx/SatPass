@@ -265,10 +265,12 @@ class NearestPlace(Place):
 
 
 class AdminUser(User):
+    deleted_at: datetime | None = Field(description="Set when the account was deleted (soft delete)")
     location_count: int
 
 
 class AdminUserDetail(User):
+    deleted_at: datetime | None
     locations: list[Observer]
 
 
@@ -289,8 +291,9 @@ class ImportSummary(BaseModel):
 
 
 class AdminStats(BaseModel):
-    users: int
-    admins: int
+    users: int = Field(description="Active accounts")
+    admins: int = Field(description="Active admins")
+    deleted_users: int
     satellites: int
     places: int
     imports: list[ImportSummary] = Field(description="Last import of each CelesTrak group")

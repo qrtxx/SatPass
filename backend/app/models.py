@@ -120,6 +120,9 @@ class UserModel(Base):
     password_hash: Mapped[str] = mapped_column(String(255))  # Argon2id hash, never the password itself
     role: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())
+    # Soft delete: set when an admin deletes the account. The row and its data stay (an admin can restore it);
+    # the account can't log in and its username/email stay reserved.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Deleting a user deletes their locations (ON DELETE CASCADE), and through them their watchlists.
     observers: Mapped[list[ObserverModel]] = relationship(back_populates="owner", cascade="all, delete-orphan", passive_deletes=True)

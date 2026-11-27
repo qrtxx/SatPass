@@ -20,7 +20,7 @@ def get_current_user(db: DbSession, credentials: Annotated[HTTPAuthorizationCred
     # The token only proves the user id; the user and their role are read from the database on every request,
     # so a deleted or demoted user loses access immediately.
     user = db.get(UserModel, decode_access_token(credentials.credentials))
-    if user is None:
+    if user is None or user.deleted_at is not None:
         raise Unauthorized("invalid_token", "The access token is not valid")
     return user
 

@@ -23,6 +23,7 @@ def user_id(db, username):
         ("get", "/admin/users/1", None),
         ("patch", "/admin/users/1", {"role": "user", "password": "x"}),
         ("delete", "/admin/users/1", None),
+        ("post", "/admin/users/1/restore", None),
     ],
 )
 def test_admin_routes_are_admin_only(db, make_user, method, path, body):
@@ -95,18 +96,56 @@ def test_last_admin_cannot_be_demoted_or_deleted(db, make_user):
     assert client.patch("/admin/users/1", json=demote, headers=SEED_ADMIN).status_code == 200
 
 
-def test_deleting_a_user_deletes_their_locations(db, make_user):
+def test_deleting_an_account_hides_it_but_keeps_its_data(db, make_user):
     alice = make_user("alice")
     obs_id = client.post("/observers", json=HOME, headers=alice).json()["id"]
-    assert client.delete(f"/admin/users/{user_id(db, 'alice')}", headers=SEED_ADMIN).status_code == 204
+    alice_id = user_id(db, "alice")
+    assert client.delete(f"/admin/users/{alice_id}", headers=SEED_ADMIN).status_code == 204
     db.expire_all()
-    assert db.get(ObserverModel, obs_id) is None and user_id(db, "alice") is None
+    assert db.get(UserModel, alice_id).deleted_at is not None  # soft delete: still in the database
+    assert db.get(ObserverModel, obs_id) is not None  # with her locations
+    assert client.get("/auth/me", headers=alice).json()["code"] == "invalid_token"  # her token stops working
+    assert client.post("/auth/login", json={"login": "alice", "password": "password123"}).status_code == 401
+    assert "alice" not in [u["username"] for u in client.get("/admin/users", headers=SEED_ADMIN).json()]
+    shown = client.get("/admin/users", params={"include_deleted": True}, headers=SEED_ADMIN).json()
+    assert next(u for u in shown if u["username"] == "alice")["deleted_at"] is not None
+    taken = {"username": "alice", "email": "new@example.com", "password": "password123"}  # the name stays reserved
+    assert client.post("/auth/register", json=taken).json()["code"] == "username_taken"
+    assert client.delete(f"/admin/users/{alice_id}", headers=SEED_ADMIN).json()["code"] == "already_deleted"
+
+
+def test_restore_account(db, make_user):
+    make_user("alice")
+    alice_id = user_id(db, "alice")
+    client.delete(f"/admin/users/{alice_id}", headers=SEED_ADMIN)
+    r = client.post(f"/admin/users/{alice_id}/restore", headers=SEED_ADMIN)
+    assert r.status_code == 200 and r.json()["deleted_at"] is None
+    assert client.post("/auth/login", json={"login": "alice", "password": "password123"}).status_code == 200
+    assert client.post(f"/admin/users/{alice_id}/restore", headers=SEED_ADMIN).json()["code"] == "not_deleted"
+
+
+def test_a_deleted_accounts_role_cannot_change(db, make_user):
+    seed_admin_password(db)
+    make_user("alice")
+    alice_id = user_id(db, "alice")
+    client.delete(f"/admin/users/{alice_id}", headers=SEED_ADMIN)
+    r = client.patch(f"/admin/users/{alice_id}", json={"role": "admin", "password": ADMIN_PASSWORD}, headers=SEED_ADMIN)
+    assert r.status_code == 409 and r.json()["code"] == "user_deleted"
+
+
+def test_deleted_admins_do_not_count_as_admins(db, make_user):
+    seed_admin_password(db)
+    make_user("boss", "admin")
+    assert client.delete(f"/admin/users/{user_id(db, 'boss')}", headers=SEED_ADMIN).status_code == 204
+    demote = {"role": "user", "password": ADMIN_PASSWORD}
+    assert client.patch("/admin/users/1", json=demote, headers=SEED_ADMIN).json()["code"] == "last_admin"
+    assert client.get("/admin/stats", headers=SEED_ADMIN).json()["admins"] == 1
 
 
 def test_stats(db, make_user):
     make_user("alice")
     stats = client.get("/admin/stats", headers=SEED_ADMIN).json()
-    assert (stats["users"], stats["admins"]) == (2, 1)
+    assert (stats["users"], stats["admins"], stats["deleted_users"]) == (2, 1, 0)
     assert stats["satellites"] >= 20 and stats["places"] >= 0 and isinstance(stats["imports"], list)
 
 

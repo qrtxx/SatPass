@@ -21,8 +21,9 @@ def _same(column, value: str):
 def find_user(db: Session, login: str) -> UserModel | None:
     """By username, or else by email, ignoring case. A username match wins: emails aren't format-checked,
     so someone could register the email "alice" and would otherwise shadow the user named alice."""
-    return db.scalar(select(UserModel).where(_same(UserModel.username, login))) or db.scalar(
-        select(UserModel).where(_same(UserModel.email, login))
+    active = UserModel.deleted_at.is_(None)  # a deleted account can't log in
+    return db.scalar(select(UserModel).where(active, _same(UserModel.username, login))) or db.scalar(
+        select(UserModel).where(active, _same(UserModel.email, login))
     )
 
 

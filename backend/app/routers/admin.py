@@ -29,8 +29,12 @@ def stats(db: DbSession):
 
 
 @router.get("/users", response_model=list[AdminUserRow])
-def list_users(db: DbSession, search: Annotated[str | None, Query(max_length=100, description="Part of a username or email")] = None):
-    return service.list_users(db, search)
+def list_users(
+    db: DbSession,
+    search: Annotated[str | None, Query(max_length=100, description="Part of a username or email")] = None,
+    include_deleted: Annotated[bool, Query(description="Also list deleted (soft-deleted) accounts")] = False,
+):
+    return service.list_users(db, search, include_deleted)
 
 
 @router.get("/users/{user_id}", response_model=AdminUserDetail, responses=NOT_FOUND)
@@ -52,8 +56,19 @@ def set_role(db: DbSession, user_id: UserId, data: RoleUpdate, actor: AdminUser)
 @router.delete(
     "/users/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete an account and its locations",
-    responses={**NOT_FOUND, **LAST_ADMIN},
+    summary="Delete an account (soft delete: it can't log in; its data stays and it can be restored)",
+    responses={**NOT_FOUND, 409: {"model": ErrorResponse, "description": "Already deleted, or the only administrator"}},
 )
 def delete_user(db: DbSession, user_id: UserId):
     service.delete_user(db, user_id)
+
+
+@router.post(
+    "/users/{user_id}/restore",
+    response_model=AdminUserDetail,
+    summary="Restore a deleted account",
+    responses={**NOT_FOUND, 409: {"model": ErrorResponse, "description": "The account isn't deleted"}},
+)
+def restore_user(db: DbSession, user_id: UserId):
+    service.restore_user(db, user_id)
+    return service.user_detail(db, user_id)
