@@ -62,19 +62,9 @@ export function RequireAuth({ children }) {
   return children
 }
 
-// Admin pages: log in first, then administrators only. The API checks this too; this only avoids a page of errors.
+// Admin pages: log in first, then administrators only; anyone else goes straight to the home page without a
+// glimpse of the admin UI. The API checks this too; this only keeps the page from showing.
 export function RequireAdmin({ children }) {
   const { user } = useAuth()
-  return (
-    <RequireAuth>
-      {user?.role === 'admin' ? (
-        children
-      ) : (
-        <section className="card">
-          <h2>Administrators only</h2>
-          <p>This page is for administrators.</p>
-        </section>
-      )}
-    </RequireAuth>
-  )
+  return <RequireAuth>{user?.role === 'admin' ? children : <Navigate to="/" replace />}</RequireAuth>
 }
