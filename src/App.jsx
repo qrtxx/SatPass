@@ -1,6 +1,7 @@
 import { Route, Routes } from 'react-router'
-import { AuthProvider, RequireAuth } from './auth.jsx'
+import { AuthProvider, RequireAdmin, RequireAuth } from './auth.jsx'
 import Layout from './Layout.jsx'
+import { AdminPage, AdminUserPage } from './pages/AdminPages.jsx'
 import { AccountPage, GlobePage, NotFoundPage, TonightPage } from './pages/Placeholders.jsx'
 import { LoginPage, RegisterPage } from './pages/AuthPages.jsx'
 import { LocationsPage, PassesPage, SatellitesPage } from './pages/MainPages.jsx'
@@ -39,6 +40,22 @@ export default function App() {
                 <RequireAuth>
                   <AccountPage />
                 </RequireAuth>
+              }
+            />
+            <Route
+              path="admin"
+              element={
+                <RequireAdmin>
+                  <AdminPage />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="admin/users/:id"
+              element={
+                <RequireAdmin>
+                  <AdminUserPage />
+                </RequireAdmin>
               }
             />
             <Route path="*" element={<NotFoundPage />} />

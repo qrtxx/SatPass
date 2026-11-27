@@ -34,7 +34,7 @@ export default function Layout() {
           Menu
         </button>
         <nav id="main-nav" className={menuOpen ? 'nav open' : 'nav'} aria-label="Main">
-          {LINKS.map(([to, label]) => (
+          {[...LINKS, ...(user?.role === 'admin' ? [['/admin', 'Admin']] : [])].map(([to, label]) => (
             <NavLink
               key={to}
               to={keepDetails(to === '/satellites' ? to + app.catalogSearch : to)}

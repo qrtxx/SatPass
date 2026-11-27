@@ -36,12 +36,17 @@ export function AuthProvider({ children }) {
     return me
   }
 
+  // After changing your own role: fetch who you are again.
+  async function reloadUser() {
+    setUser(await api('/auth/me'))
+  }
+
   async function register(username, email, password) {
     await api('/auth/register', { method: 'POST', body: { username, email, password } })
     return login(username, password)
   }
 
-  const value = { user, status, login, register, logout }
+  const value = { user, status, login, register, logout, reloadUser }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
@@ -55,4 +60,21 @@ export function RequireAuth({ children }) {
     return <Navigate to={`/login?next=${next}`} replace />
   }
   return children
+}
+
+// Admin pages: log in first, then administrators only. The API checks this too; this only avoids a page of errors.
+export function RequireAdmin({ children }) {
+  const { user } = useAuth()
+  return (
+    <RequireAuth>
+      {user?.role === 'admin' ? (
+        children
+      ) : (
+        <section className="card">
+          <h2>Administrators only</h2>
+          <p>This page is for administrators.</p>
+        </section>
+      )}
+    </RequireAuth>
+  )
 }
