@@ -39,11 +39,12 @@ users 1 ──< observers 1 ──< watchlist_entries >── 1 satellites
 | `satellites` | `norad_cat_id` (PK, the NORAD catalog number), `object_name`, `epoch` (timestamptz), 9 orbital elements (double precision) | CHECK ranges for mean motion, eccentricity, inclination and the angles |
 | `observers` | `id` (serial PK), `owner_id` (FK → `users`), `name`, `latitude`, `longitude`, `elevation_m`, `min_elevation_deg`, `created_at` | CHECK coordinate ranges, non-blank name; unique index on (`owner_id`, `lower(name)`); FK `ON DELETE CASCADE` |
 | `watchlist_entries` | `observer_id` (FK), `norad_id` (FK), `added_at` | PK (`observer_id`, `norad_id`) so a satellite is watched once per observer; both FKs `ON DELETE CASCADE` |
+| `places` | `id` (GeoNames id), `name` (local spelling), `ascii_name`, `country_code`, `region`, `latitude`, `longitude`, `elevation_m`, `population` | Prefix indexes on `lower(name)` and `lower(ascii_name)` (`text_pattern_ops`), index on `latitude`. Filled by `python -m app.cli load-places`, not by migrations |
 | `catalog_imports` | `group_name` (PK), `fetched_at`, `received`, `added`, `updated`, `unchanged`, `skipped` | One row per CelesTrak group: the last successful import, used for the 2-hour limit |
 
 Relationships: one user owns many observers (locations). One observer has many watchlist entries, and one satellite appears in many watchlist entries. Together they form a many-to-many between observers and satellites. Deleting a user deletes their observers, deleting an observer deletes its watchlist, and deleting a satellite removes it from every watchlist.
 
-Migrations are in `alembic/versions/`: 0001 creates the tables, 0002 loads the seed data, 0003 adds `catalog_imports`, 0004 adds `users` and an `admin` with an unusable password, and 0005 gives every observer an owner (existing ones go to the admin).
+Migrations are in `alembic/versions/`: 0001 creates the tables, 0002 loads the seed data, 0003 adds `catalog_imports`, 0004 adds `users` and an `admin` with an unusable password, 0005 gives every observer an owner (existing ones go to the admin), and 0006 adds the empty `places` table.
 
 The API checks every rule first and returns a readable error. The database constraints are a second line of defence; if one fires anyway, the API answers 409 `integrity_error` instead of crashing.
 
@@ -58,9 +59,11 @@ app/
 ├─ errors.py            Unauthorized (401), Forbidden (403), NotFound (404), Conflict (409), RuleViolation (422), …
 ├─ security.py          password hashing (Argon2id), JWT access tokens
 ├─ dependencies.py      CurrentUser and require_admin (who is making the request)
-├─ cli.py               python -m app.cli set-password <username>
+├─ cli.py               python -m app.cli set-password <username> | load-places [--full]
 ├─ routers/             HTTP only: parameters, status codes, docs
+│  ├─ admin.py
 │  ├─ auth.py
+│  ├─ places.py
 │  ├─ satellites.py
 │  └─ observers.py
 └─ services/            business logic, no FastAPI imports
@@ -68,10 +71,13 @@ app/
    ├─ satellites.py     catalog rules
    ├─ celestrak.py      downloads a group of orbital elements from CelesTrak
    ├─ catalog_import.py adds/refreshes the catalog from a download (2-hour limit)
+   ├─ admin.py          users, roles, dashboard counts (last-admin rule)
    ├─ auth.py           registration, login, set password
+   ├─ places.py         GeoNames loader, place search, nearest place
    └─ observers.py      observers, watchlist, pass prediction
-alembic/versions/       migrations: schema, then seed data
-tests/                  pytest: orbit math, every endpoint, database constraints, security, permissions
+alembic/versions/       migrations: schema, seed data, then the later changes
+data/geonames/          GeoNames downloads for load-places (git-ignored)
+tests/                  pytest: orbit math, every endpoint, database constraints, security, permissions, admin, places
 ```
 
 ## Authentication and permissions
@@ -91,9 +97,11 @@ tests/                  pytest: orbit math, every endpoint, database constraints
 | `GET /auth/me` | 401 | ✅ | ✅ |
 | `GET /satellites`, `/satellites/{id}`, `/satellites/{id}/position` | ✅ | ✅ | ✅ |
 | `POST /satellites`, `PATCH`/`DELETE /satellites/{id}`, `POST /satellites/import` | 401 | 403 `admin_only` | ✅ |
-| `GET /observers` | 401 | own only | all |
+| `GET /observers` | 401 | own only | own only (other users' are on `/admin/users/{id}`) |
 | `POST /observers` | 401 | ✅ (owner = you) | ✅ (owner = you) |
 | `GET`/`PATCH`/`DELETE /observers/{id}`, `…/watchlist`, `…/passes` (also with `norad_id`) | 401 | own ✅, others 403 `not_owner` | ✅ any |
+| `GET /places`, `GET /places/nearest` | ✅ | ✅ | ✅ |
+| `GET /admin/stats`, `GET /admin/users`, `GET`/`PATCH`/`DELETE /admin/users/{id}` | 401 | 403 `admin_only` | ✅ |
 
 **401 codes:**
 - `not_authenticated`: no token sent;
@@ -107,6 +115,31 @@ Every 401 carries `WWW-Authenticate: Bearer`.
 1. Call `POST /auth/login` and copy `access_token`.
 2. Click **Authorize** (top right), paste the token and confirm.
 3. Every request now carries it.
+
+## Place search (GeoNames)
+
+`python -m app.cli load-places` downloads GeoNames files into `backend/data/geonames/` (git-ignored) if they're missing, and loads the populated places (feature class P) into `places`:
+- `allCountries.zip` (~400 MB, every place in the world) when it's present or with `--full`;
+- otherwise `KZ.zip` (every place in Kazakhstan) + `cities1000.zip` (towns of 1,000+ worldwide), about 14 MB. Places in both files are loaded once.
+
+The load runs in one transaction (TRUNCATE + COPY), so a failed run keeps the previous data.
+
+- **`GET /places?search=ast&limit=10`:** names starting with the text, in the local (`Ақтау`) or Latin (`Aktau`) spelling, ignoring case. Exact names come first, then bigger places, then alphabetical; many villages have population 0 (unknown). At least 2 characters; `%` and `_` are literal.
+- **`GET /places/nearest?latitude=&longitude=`:** the closest place within 50 km, with `distance_km`, or 404 `no_place_nearby`. The UI uses it to estimate the elevation of a typed or GPS location.
+
+## Admin
+
+All admin-only:
+
+| Endpoint | Does |
+|---|---|
+| `GET /admin/stats` | Counts of users, admins, satellites and places, plus the last import of each CelesTrak group |
+| `GET /admin/users?search=` | Every user with their number of locations; `search` matches username or email |
+| `GET /admin/users/{id}` | One user with their locations |
+| `PATCH /admin/users/{id}` `{"role": "admin"}` or `{"role": "user"}` | Change the role |
+| `DELETE /admin/users/{id}` | Delete the account; their locations and watchlists go too |
+
+The last admin can't be demoted or deleted (409 `last_admin`), so nobody is locked out.
 
 ## Workflows and business rules
 
@@ -161,5 +194,12 @@ Reset to the seed data first (`alembic downgrade base`, then `alembic upgrade he
 | 34 | As alice: `GET /observers/1` | 403 `not_owner` (Almaty is the admin's) |
 | 35 | As alice: `DELETE /satellites/48274` | 403 `admin_only` |
 | 36 | As alice: `POST /observers` with `{"name": "Almaty", "latitude": 43.2, "longitude": 76.9}` | 201: names are unique per user, so she can also have an "Almaty" |
+| 37 | `GET /places?search=almat` (after `load-places`) | 200, Almaty first, with region, coordinates and elevation |
+| 38 | `GET /places?search=a` | 422 (at least 2 characters) |
+| 39 | `GET /places/nearest?latitude=43.21&longitude=76.90` | 200, the nearest place (Almaty) with `distance_km` |
+| 40 | As alice: `GET /admin/users` | 403 `admin_only` |
+| 41 | As admin: `GET /admin/users`, then `GET /admin/users/{alice's id}` | 200, users with `location_count`; alice with her locations |
+| 42 | As admin, the only admin: `PATCH /admin/users/1` `{"role": "user"}` | 409 `last_admin` |
+| 43 | As admin: `DELETE /admin/users/{alice's id}` | 204; her locations are gone too |
 
 The first ISS pass in row 15 rises at 15:59:26 UTC in the SW and peaks at 61.5°. This matches satellite.js on the same data.

@@ -8,8 +8,10 @@ A **React** (Vite, react-router) UI in [`src/`](src/) uses that API. Every page 
 - **`/satellites`:** browse and search the whole catalog page by page, tick up to 20 satellites and press **Predict passes**, and update orbit data from CelesTrak. The search and page are in the URL (`/satellites?q=starlink&page=3`).
 - **Satellite details:** click a satellite's name on any page to see its orbit, where it is now (refreshed every 5 seconds), its next passes over your location, and Watch and Delete buttons. The details have their own link, for example `?sat=25544`.
 - **`/passes`:** predict for the ticked satellites or for the location's watchlist, over a chosen time window.
-- **`/locations`:** add, edit and delete your locations.
-- **Coming soon:** `/` (Tonight's visible passes), `/globe`, `/login`, `/register` and `/account`. Their pages are already there as placeholders.
+- **`/locations`:** your locations. Add one by searching a town or village, by using your current location, or by typing coordinates. Elevation is filled in from the place, or estimated from the nearest one.
+- **`/login`, `/register`:** accounts. Passes and locations need one; browsing satellites doesn't.
+- **`/admin`** (admins only): user and catalog counts, the last orbit-data imports, and every user. Each user has a page (`/admin/users/:id`) with their profile, role, locations and account deletion.
+- **Coming soon:** `/` (Tonight's visible passes), `/globe` and `/account`. Their pages are already there as placeholders.
 
 Errors from the API, such as validation errors or a duplicate name, are shown on the page.
 
@@ -89,6 +91,21 @@ Then give the admin a password (it can't log in until you do). You type it twice
 ```powershell
 .venv\Scripts\python -m app.cli set-password admin
 ```
+
+Then load the towns and villages used by the place search ("Find a town or village" when adding a location):
+
+```powershell
+.venv\Scripts\python -m app.cli load-places
+```
+
+The data comes from [GeoNames](https://www.geonames.org/) (CC BY 4.0) and is stored in `backend\data\geonames\` (not in git). There are two sizes:
+
+| | Files | Download | Contains |
+|---|---|---|---|
+| **Default** | `KZ.zip` + `cities1000.zip` | ~14 MB | Every town and village in Kazakhstan, plus towns of 1,000+ people worldwide. Enough to try the project. |
+| **Full** (`load-places --full`) | `allCountries.zip` | ~400 MB | Every populated place in the world. Loading takes a few minutes. |
+
+`load-places` uses `allCountries.zip` if it's already in `backend\data\geonames\`. Otherwise it uses whichever of the two small files are there, and downloads them if neither is. Running it again replaces the places with the current files. Without it, the place search finds nothing, but you can still type coordinates.
 
 ### 7. Start the server
 
