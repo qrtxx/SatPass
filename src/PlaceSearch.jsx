@@ -24,6 +24,9 @@ export default function PlaceSearch({ onPick }) {
   }, [word])
 
   const shown = word.length >= 2 && results.word === word ? results.places : []
+  const noMatch = word.length >= 2 && results.word === word && shown.length === 0
+  // Read out by screen readers when it changes (the list itself appears silently).
+  const status = shown.length ? `${shown.length} place${shown.length === 1 ? '' : 's'} found` : noMatch ? 'No places found' : ''
 
   function pick(place) {
     onPick(place)
@@ -40,10 +43,19 @@ export default function PlaceSearch({ onPick }) {
           onChange={(e) => setText(e.target.value)}
           placeholder="e.g. Almaty, Talgar, Astana"
           autoComplete="off"
-          aria-controls="place-results"
+          aria-controls={shown.length ? 'place-results' : undefined}
+          aria-describedby="place-status"
+          onKeyDown={(e) => e.key === 'Escape' && setText('')}
         />
       </label>
-      {error && <p className="error">{error}</p>}
+      <p id="place-status" className="visually-hidden" aria-live="polite">
+        {status}
+      </p>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
       {shown.length > 0 && (
         <ul id="place-results" className="place-results">
           {shown.map((p) => (
@@ -61,7 +73,7 @@ export default function PlaceSearch({ onPick }) {
           ))}
         </ul>
       )}
-      {word.length >= 2 && results.word === word && shown.length === 0 && (
+      {noMatch && (
         <p className="muted">No places start with “{word}”. You can still enter the coordinates below.</p>
       )}
     </div>

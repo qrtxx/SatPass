@@ -48,7 +48,10 @@ def user_detail(db: Session, user_id: int) -> AdminUserDetail:
 
 def _check_not_last_admin(db: Session, user: UserModel) -> None:
     # Without any admin nobody could manage users again, short of editing the database by hand.
-    if user.role == "admin" and _count(db, select(UserModel.id).where(UserModel.role == "admin")) == 1:
+    # FOR UPDATE locks the admin rows until this request commits, so two admins demoting each other at the
+    # same moment can't both see "2 admins": the second waits, re-reads, and gets last_admin.
+    admins = db.scalars(select(UserModel.id).where(UserModel.role == "admin").with_for_update()).all()
+    if user.role == "admin" and len(admins) == 1:
         raise Conflict("last_admin", "This is the only administrator; make someone else an admin first")
 
 

@@ -127,3 +127,9 @@ def test_load_places_chooses_its_files(tmp_path, monkeypatch, present, full, exp
     for name in present:
         (tmp_path / name).touch()
     assert cli.choose_files(full) == expected
+
+
+@pytest.mark.parametrize("search", ["  ", " a ", "\t\t"])
+def test_blank_or_padded_short_search_is_rejected(places, search):
+    # Otherwise "  " becomes the pattern "%" and sorts the whole table.
+    assert client.get("/places", params={"search": search}).status_code == 422

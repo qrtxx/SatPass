@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from app.db import DbSession
+from app.errors import RuleViolation
 from app.schemas import ErrorResponse, NearestPlace, Place
 from app.services import places as service
 
@@ -15,6 +16,9 @@ def search_places(
     search: Annotated[str, Query(min_length=2, max_length=100, description="Start of the name, e.g. 'ast'")],
     limit: Annotated[int, Query(ge=1, le=20)] = 10,
 ):
+    # Count the characters that matter: "  " or " a" would otherwise match (and sort) the whole table.
+    if len(search.strip()) < 2:
+        raise RuleViolation("search_too_short", "Type at least 2 letters of the name")
     return service.search_places(db, search, limit)
 
 

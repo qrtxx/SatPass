@@ -88,3 +88,48 @@ def test_my_locations_are_my_own_even_for_admins(db, make_user):
     alice = make_user("alice")
     client.post("/observers", json=HOME, headers=alice)
     assert [o["name"] for o in client.get("/observers", headers=SEED_ADMIN).json()] == ["Almaty"]
+
+
+def test_concurrent_demotions_cannot_remove_every_admin():
+    # Two admins demoting each other at the same moment: the second check must wait for the first to commit.
+    # Uses committed rows and its own sessions (the rollback fixture can't show two transactions), cleaned up below.
+    import threading
+
+    from app.db import SessionLocal
+    from app.errors import Conflict
+    from app.services.admin import _check_not_last_admin, set_role
+
+    with SessionLocal() as setup:
+        a = UserModel(username="race_a", email="race_a@example.com", password_hash="x", role="admin")
+        b = UserModel(username="race_b", email="race_b@example.com", password_hash="x", role="admin")
+        setup.add_all([a, b])
+        setup.query(UserModel).filter(UserModel.id == 1).update({"role": "user"})  # leave exactly a and b as admins
+        setup.commit()
+        a_id, b_id = a.id, b.id
+    outcome = {}
+    try:
+        first = SessionLocal()
+        _check_not_last_admin(first, first.get(UserModel, a_id))  # first request has checked (2 admins), not yet committed
+
+        def second_request():
+            with SessionLocal() as second:
+                try:
+                    set_role(second, b_id, "user")
+                    outcome["second"] = "demoted"
+                except Conflict as exc:
+                    outcome["second"] = exc.code
+
+        thread = threading.Thread(target=second_request)
+        thread.start()
+        thread.join(timeout=1)
+        assert thread.is_alive(), "the second request didn't wait for the first one"
+        first.get(UserModel, a_id).role = "user"
+        first.commit()
+        first.close()
+        thread.join(timeout=10)
+        assert outcome["second"] == "last_admin"
+    finally:
+        with SessionLocal() as cleanup:
+            cleanup.query(UserModel).filter(UserModel.username.in_(["race_a", "race_b"])).delete()
+            cleanup.query(UserModel).filter(UserModel.id == 1).update({"role": "admin"})
+            cleanup.commit()

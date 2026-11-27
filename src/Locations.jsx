@@ -16,30 +16,41 @@ export default function Locations({ observers, onChange }) {
   const [editingId, setEditingId] = useState(null)
   const [error, setError] = useState('')
   const [hint, setHint] = useState('') // where the coordinates/elevation came from
+  const [autoName, setAutoName] = useState('') // a name we filled in (not typed), so the next pick may replace it
 
   function reset() {
     setForm(EMPTY)
     setEditingId(null)
     setError('')
     setHint('')
+    setAutoName('')
   }
+
+  // Fill the name only if it's empty or one we filled in ourselves; never overwrite a name the user typed.
+  const fillName = (f, name) => (f.name === '' || f.name === autoName ? name : f.name)
 
   function pickPlace(place) {
     setForm((f) => ({
       ...f,
-      name: f.name || place.name,
+      name: fillName(f, place.name),
       latitude: String(place.latitude),
       longitude: String(place.longitude),
-      elevation_m: String(place.elevation_m ?? f.elevation_m),
+      elevation_m: place.elevation_m == null ? '0' : String(place.elevation_m),
     }))
-    setHint(`Coordinates and elevation of ${place.name} from GeoNames. You can still adjust them.`)
+    setAutoName(place.name)
+    setHint(
+      place.elevation_m == null
+        ? `Coordinates of ${place.name} from GeoNames. Its elevation is unknown, so it's set to 0 m: enter it if you know it.`
+        : `Coordinates and elevation of ${place.name} from GeoNames. You can still adjust them.`,
+    )
   }
 
   // Elevation of an arbitrary point, estimated from the nearest town or village (GeoNames).
   function estimateElevation(latitude, longitude) {
     api(`/places/nearest?${new URLSearchParams({ latitude, longitude })}`).then(
       (p) => {
-        setForm((f) => ({ ...f, name: f.name || `Near ${p.name}`, elevation_m: String(p.elevation_m ?? f.elevation_m) }))
+        setForm((f) => ({ ...f, name: fillName(f, `Near ${p.name}`), elevation_m: String(p.elevation_m ?? f.elevation_m) }))
+        setAutoName(`Near ${p.name}`)
         setHint(
           p.elevation_m == null
             ? `Nearest place: ${p.name} (${p.distance_km} km), elevation unknown; enter it yourself.`
