@@ -52,9 +52,26 @@ def test_load_places_replaces_the_table(db, tmp_path):
     with zipfile.ZipFile(places_zip, "w") as z:
         z.writestr("allCountries.txt", SAMPLE + "\n")
     regions_txt.write_text(REGIONS, encoding="utf-8")
-    assert load_places(db, places_zip, regions_txt) == 3
+    assert load_places(db, [places_zip], regions_txt) == 3
     db.expire_all()
     assert sorted(p.name for p in db.query(PlaceModel)) == ["Almaty", "Astana", "Tiny Aul"]
+
+
+def test_load_places_from_the_small_files_skips_duplicates(db, tmp_path):
+    # KZ.zip and cities1000.zip overlap: Kazakh towns over 1,000 people are in both.
+    kz, cities = tmp_path / "KZ.zip", tmp_path / "cities1000.zip"
+    with zipfile.ZipFile(kz, "w") as z:
+        z.writestr("KZ.txt", SAMPLE + "\n")
+        z.writestr("readme.txt", "not data")
+    almaty_row = SAMPLE.splitlines()[0]
+    paris_row = almaty_row.replace("1526384\tAlmaty\tAlmaty", "2988507\tParis\tParis").replace("\tKZ\t", "\tFR\t")
+    with zipfile.ZipFile(cities, "w") as z:
+        z.writestr("cities1000.txt", almaty_row + "\n" + paris_row + "\n")
+    regions_txt = tmp_path / "admin1CodesASCII.txt"
+    regions_txt.write_text(REGIONS, encoding="utf-8")
+    assert load_places(db, [kz, cities], regions_txt) == 4  # Almaty once, plus Astana, Tiny Aul and Paris
+    db.expire_all()
+    assert sorted(p.name for p in db.query(PlaceModel)) == ["Almaty", "Astana", "Paris", "Tiny Aul"]
 
 
 def test_search_ranks_exact_name_then_population(places):
@@ -92,3 +109,21 @@ def test_nearest_place_gives_distance_and_elevation(places):
 def test_no_place_nearby(places):
     r = client.get("/places/nearest", params={"latitude": -40.0, "longitude": -30.0})  # the South Atlantic
     assert r.status_code == 404 and r.json()["code"] == "no_place_nearby"
+
+
+@pytest.mark.parametrize(
+    "present, full, expected",
+    [
+        ([], False, ["KZ.zip", "cities1000.zip"]),  # nothing downloaded yet: the small set
+        (["KZ.zip"], False, ["KZ.zip"]),  # use what's there
+        (["KZ.zip", "allCountries.zip"], False, ["allCountries.zip"]),  # the full file wins
+        ([], True, ["allCountries.zip"]),  # --full
+    ],
+)
+def test_load_places_chooses_its_files(tmp_path, monkeypatch, present, full, expected):
+    from app import cli
+
+    monkeypatch.setattr(cli, "DATA_DIR", tmp_path)
+    for name in present:
+        (tmp_path / name).touch()
+    assert cli.choose_files(full) == expected

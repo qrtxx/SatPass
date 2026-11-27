@@ -39,20 +39,31 @@ def parse_places(lines: Iterable[str], regions: dict[str, str]) -> Iterator[tupl
         yield (int(f[0]), f[1][:200], f[2][:200], f[8][:2], region, float(f[4]), float(f[5]), elevation, int(f[14] or 0))
 
 
-def load_places(db: Session, places_zip: Path, regions_txt: Path) -> int:
-    """Replace the places table with the dump's populated places. One transaction: a failed load keeps the old data."""
-    regions = parse_regions(regions_txt.read_text(encoding="utf-8").splitlines())
-    count = 0
-    with zipfile.ZipFile(places_zip) as archive:
+def _rows(zip_path: Path, regions: dict[str, str]) -> Iterator[tuple]:
+    with zipfile.ZipFile(zip_path) as archive:
         member = next(n for n in archive.namelist() if n.endswith(".txt") and n != "readme.txt")
         with archive.open(member) as raw:
-            db.execute(text("TRUNCATE places"))
-            # COPY streams millions of rows in minutes; individual INSERTs would take far longer.
-            cursor = db.connection().connection.cursor()
-            with cursor.copy(f"COPY places ({COLUMNS}) FROM STDIN") as copy:
-                for row in parse_places(io.TextIOWrapper(raw, encoding="utf-8"), regions):
-                    copy.write_row(row)
-                    count += 1
+            yield from parse_places(io.TextIOWrapper(raw, encoding="utf-8"), regions)
+
+
+def load_places(db: Session, place_zips: list[Path], regions_txt: Path) -> int:
+    """Replace the places table with the populated places of one or more GeoNames files (allCountries.zip, or
+    KZ.zip + cities1000.zip). One transaction: a failed load keeps the old data."""
+    regions = parse_regions(regions_txt.read_text(encoding="utf-8").splitlines())
+    seen: set[int] = set()  # the small files overlap (Kazakh towns are in both); one file has no duplicates
+    count = 0
+    db.execute(text("TRUNCATE places"))
+    # COPY streams millions of rows in minutes; individual INSERTs would take far longer.
+    cursor = db.connection().connection.cursor()
+    with cursor.copy(f"COPY places ({COLUMNS}) FROM STDIN") as copy:
+        for zip_path in place_zips:
+            for row in _rows(zip_path, regions):
+                if len(place_zips) > 1:
+                    if row[0] in seen:
+                        continue
+                    seen.add(row[0])
+                copy.write_row(row)
+                count += 1
     db.commit()
     return count
 

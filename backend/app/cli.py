@@ -1,7 +1,8 @@
 """Admin commands.
 
     python -m app.cli set-password <username>   set a user's password (e.g. the seeded admin)
-    python -m app.cli load-places               download GeoNames (~400 MB, once) and load towns/villages
+    python -m app.cli load-places [--full]      load towns/villages from GeoNames: allCountries.zip if present
+                                                (or --full, ~400 MB), else KZ.zip + cities1000.zip (~14 MB)
 """
 
 import argparse
@@ -56,13 +57,26 @@ def cmd_set_password(username: str) -> int:
     return 0
 
 
-def cmd_load_places() -> int:
+FULL = "allCountries.zip"  # every populated place in the world, ~400 MB
+SMALL = ["KZ.zip", "cities1000.zip"]  # every place in Kazakhstan + towns of 1,000+ worldwide, ~14 MB
+
+
+def choose_files(full: bool) -> list[str]:
+    """allCountries.zip if it's there (or --full); else whichever small files are there; else the small set."""
+    if full or (DATA_DIR / FULL).exists():
+        return [FULL]
+    present = [name for name in SMALL if (DATA_DIR / name).exists()]
+    return present or SMALL
+
+
+def cmd_load_places(full: bool) -> int:
     regions = download("admin1CodesASCII.txt")
-    places = download("allCountries.zip")
-    print("Loading populated places into the database (a few minutes) …")
+    names = choose_files(full)
+    files = [download(name) for name in names]
+    print(f"Loading populated places from {', '.join(names)} (a few minutes for the full file) …")
     started = time.perf_counter()
     with SessionLocal() as db:
-        count = load_places(db, places, regions)
+        count = load_places(db, files, regions)
     print(f"Loaded {count:,} places in {time.perf_counter() - started:.0f} s")
     return 0
 
@@ -71,10 +85,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("set-password", help="set a user's password (e.g. the seeded admin)").add_argument("username")
-    commands.add_parser("load-places", help="download GeoNames and load towns and villages for place search")
+    places = commands.add_parser("load-places", help="load towns and villages for place search (downloads GeoNames if needed)")
+    places.add_argument("--full", action="store_true", help="use allCountries.zip (~400 MB) instead of KZ.zip + cities1000.zip")
     args = parser.parse_args(argv)
     if args.command == "load-places":
-        return cmd_load_places()
+        return cmd_load_places(args.full)
     return cmd_set_password(args.username)
 
 
