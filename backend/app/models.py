@@ -6,7 +6,7 @@ An observer has many watchlist entries, and so does a satellite (two one-to-many
 
 from datetime import datetime, timezone
 
-from sqlalchemy import CheckConstraint, DateTime, Double, ForeignKey, Index, Integer, String, func, text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, Double, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -123,3 +123,25 @@ class UserModel(Base):
 
     # Deleting a user deletes their locations (ON DELETE CASCADE), and through them their watchlists.
     observers: Mapped[list[ObserverModel]] = relationship(back_populates="owner", cascade="all, delete-orphan", passive_deletes=True)
+
+
+class PlaceModel(Base):
+    """Towns and villages from GeoNames (populated places), for picking a location by name."""
+
+    __tablename__ = "places"
+    __table_args__ = (
+        # Prefix search (LIKE 'ast%') on lower-cased names; text_pattern_ops makes LIKE use the index in any collation.
+        Index("ix_places_ascii_name_prefix", text("lower(ascii_name) text_pattern_ops")),
+        Index("ix_places_name_prefix", text("lower(name) text_pattern_ops")),
+        Index("ix_places_latitude", "latitude"),  # nearest-place lookups scan a latitude band
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)  # the GeoNames id
+    name: Mapped[str] = mapped_column(String(200))  # local spelling, e.g. Ақтау
+    ascii_name: Mapped[str] = mapped_column(String(200))  # Latin spelling, e.g. Aktau
+    country_code: Mapped[str] = mapped_column(String(2))
+    region: Mapped[str | None] = mapped_column(String(200))
+    latitude: Mapped[float] = mapped_column(Double)
+    longitude: Mapped[float] = mapped_column(Double)
+    elevation_m: Mapped[int | None]
+    population: Mapped[int] = mapped_column(BigInteger)

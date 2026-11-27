@@ -238,3 +238,24 @@ class Token(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     expires_in: int = Field(description="Seconds until the token expires")
+
+
+# --- Places (GeoNames) -----------------------------------------------------------
+
+
+class Place(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int = Field(description="GeoNames id")
+    name: str = Field(description="Local spelling")
+    ascii_name: str = Field(description="Latin spelling")
+    country_code: str
+    region: str | None
+    latitude: float
+    longitude: float
+    elevation_m: int | None = Field(description="Height above sea level, if GeoNames knows it")
+    population: int = Field(description="0 when unknown")
+
+
+class NearestPlace(Place):
+    distance_km: float
