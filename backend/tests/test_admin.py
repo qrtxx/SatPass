@@ -21,7 +21,7 @@ def user_id(db, username):
         ("get", "/admin/stats", None),
         ("get", "/admin/users", None),
         ("get", "/admin/users/1", None),
-        ("patch", "/admin/users/1", {"role": "user"}),
+        ("patch", "/admin/users/1", {"role": "user", "password": "x"}),
         ("delete", "/admin/users/1", None),
     ],
 )
@@ -50,23 +50,49 @@ def test_user_page_shows_their_locations(db, make_user):
     assert client.get("/admin/users/999", headers=SEED_ADMIN).status_code == 404
 
 
+def seed_admin_password(db):
+    """The seeded admin has an unusable password; give it one for tests that must re-type it."""
+    from app.services.auth import set_password
+
+    set_password(db, "admin", ADMIN_PASSWORD)
+
+
+ADMIN_PASSWORD = "admin-password-1"
+
+
 def test_change_role(db, make_user):
+    seed_admin_password(db)
     make_user("alice")
     alice_id = user_id(db, "alice")
-    r = client.patch(f"/admin/users/{alice_id}", json={"role": "admin"}, headers=SEED_ADMIN)
+    r = client.patch(f"/admin/users/{alice_id}", json={"role": "admin", "password": ADMIN_PASSWORD}, headers=SEED_ADMIN)
     assert r.status_code == 200 and r.json()["role"] == "admin"
-    assert client.patch(f"/admin/users/{alice_id}", json={"role": "boss"}, headers=SEED_ADMIN).status_code == 422
+    bad_role = {"role": "boss", "password": ADMIN_PASSWORD}
+    assert client.patch(f"/admin/users/{alice_id}", json=bad_role, headers=SEED_ADMIN).status_code == 422
+
+
+def test_role_change_needs_the_admins_own_password(db, make_user):
+    seed_admin_password(db)
+    make_user("alice")
+    alice_id = user_id(db, "alice")
+    assert client.patch(f"/admin/users/{alice_id}", json={"role": "admin"}, headers=SEED_ADMIN).status_code == 422  # missing
+    r = client.patch(f"/admin/users/{alice_id}", json={"role": "admin", "password": "wrong"}, headers=SEED_ADMIN)
+    # 403, not 401: a wrong re-typed password must not log the admin out.
+    assert r.status_code == 403 and r.json()["code"] == "wrong_password"
+    db.expire_all()
+    assert db.get(UserModel, alice_id).role == "user"
 
 
 def test_last_admin_cannot_be_demoted_or_deleted(db, make_user):
+    seed_admin_password(db)
+    demote = {"role": "user", "password": ADMIN_PASSWORD}
     for r in [
-        client.patch("/admin/users/1", json={"role": "user"}, headers=SEED_ADMIN),
+        client.patch("/admin/users/1", json=demote, headers=SEED_ADMIN),
         client.delete("/admin/users/1", headers=SEED_ADMIN),
     ]:
         assert r.status_code == 409 and r.json()["code"] == "last_admin"
     # With a second admin, the first one may step down.
     make_user("boss", "admin")
-    assert client.patch("/admin/users/1", json={"role": "user"}, headers=SEED_ADMIN).status_code == 200
+    assert client.patch("/admin/users/1", json=demote, headers=SEED_ADMIN).status_code == 200
 
 
 def test_deleting_a_user_deletes_their_locations(db, make_user):

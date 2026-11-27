@@ -3,8 +3,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path, Query, status
 
 from app.db import DbSession
-from app.dependencies import require_admin
-from app.schemas import AdminStats, AdminUser, AdminUserDetail, ErrorResponse, RoleUpdate, User
+from app.dependencies import AdminUser, require_admin
+from app.schemas import AdminStats, AdminUserDetail, ErrorResponse, RoleUpdate, User
+from app.schemas import AdminUser as AdminUserRow
 from app.services import admin as service
 
 # Everything here is for administrators only.
@@ -27,7 +28,7 @@ def stats(db: DbSession):
     return service.stats(db)
 
 
-@router.get("/users", response_model=list[AdminUser])
+@router.get("/users", response_model=list[AdminUserRow])
 def list_users(db: DbSession, search: Annotated[str | None, Query(max_length=100, description="Part of a username or email")] = None):
     return service.list_users(db, search)
 
@@ -37,8 +38,14 @@ def get_user(db: DbSession, user_id: UserId):
     return service.user_detail(db, user_id)
 
 
-@router.patch("/users/{user_id}", response_model=User, summary="Change a user's role", responses={**NOT_FOUND, **LAST_ADMIN})
-def set_role(db: DbSession, user_id: UserId, data: RoleUpdate):
+@router.patch(
+    "/users/{user_id}",
+    response_model=User,
+    summary="Change a user's role (re-type your own password to confirm)",
+    responses={**NOT_FOUND, **LAST_ADMIN},
+)
+def set_role(db: DbSession, user_id: UserId, data: RoleUpdate, actor: AdminUser):
+    service.confirm_password(actor, data.password)
     return service.set_role(db, user_id, data.role)
 
 

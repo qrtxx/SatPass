@@ -273,9 +273,10 @@ class AdminUserDetail(User):
 
 
 class RoleUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"example": {"role": "admin", "password": "your own password"}})
 
     role: Literal["user", "admin"]
+    password: str = Field(description="The acting admin's own password, re-typed to confirm the change")
 
 
 class ImportSummary(BaseModel):

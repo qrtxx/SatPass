@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { api, formatCount, formatTime } from '../api.js'
+import ConfirmDialog from '../ConfirmDialog.jsx'
 import { useAuth } from '../useAuth.js'
 
 // /admin: the numbers at a glance, then every user. Click a user for their page.
@@ -119,9 +120,13 @@ export function AdminPage() {
 export function AdminUserPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { user: me, reloadUser } = useAuth()
+  const { user: me, reloadUser, logout } = useAuth()
   const [user, setUser] = useState(null)
   const [error, setError] = useState('')
+  // Which confirmation is open: { kind: 'role', role } | { kind: 'delete' } | { kind: 'deleteForSure' } | null
+  const [dialog, setDialog] = useState(null)
+  const [dialogError, setDialogError] = useState('')
+  const [busy, setBusy] = useState(false)
 
   const load = useCallback(() => api(`/admin/users/${id}`).then((u) => (setUser(u), setError('')), (e) => setError(e.message)), [id])
 
@@ -138,18 +143,44 @@ export function AdminUserPage() {
     }
   }
 
-  const changeRole = (role) =>
-    run(async () => {
-      await api(`/admin/users/${id}`, { method: 'PATCH', body: { role } })
-      if (user.id === me.id) await reloadUser() // demoting yourself takes effect in the UI right away
+  function openDialog(next) {
+    setDialog(next)
+    setDialogError('')
+  }
+
+  // Runs the dialog's action; an error stays inside the dialog (e.g. a wrong password) so it can be retried.
+  async function confirmDialog(action) {
+    setBusy(true)
+    setDialogError('')
+    try {
+      await action()
+    } catch (e) {
+      setDialogError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const changeRole = (role, password) =>
+    confirmDialog(async () => {
+      await api(`/admin/users/${id}`, { method: 'PATCH', body: { role, password } })
+      setDialog(null)
+      if (user.id === me.id && role !== 'admin') {
+        await reloadUser() // you're no longer an admin: leave the admin pages
+        navigate('/')
+        return
+      }
       await load()
     })
 
   const deleteAccount = () =>
-    confirm(`Delete ${user.username}'s account and all their locations? This can't be undone.`) &&
-    run(async () => {
+    confirmDialog(async () => {
       await api(`/admin/users/${id}`, { method: 'DELETE' })
-      navigate('/admin')
+      setDialog(null)
+      if (user.id === me.id) {
+        logout() // you deleted your own account
+        navigate('/')
+      } else navigate('/admin')
     })
 
   const deleteLocation = (o) =>
@@ -184,14 +215,80 @@ export function AdminUserPage() {
           </dl>
           <p className="actions">
             {user.role === 'admin' ? (
-              <button onClick={() => changeRole('user')}>Make regular user</button>
+              <button onClick={() => openDialog({ kind: 'role', role: 'user' })}>Make regular user</button>
             ) : (
-              <button onClick={() => changeRole('admin')}>Make admin</button>
+              <button onClick={() => openDialog({ kind: 'role', role: 'admin' })}>Make admin</button>
             )}
-            <button className="danger" onClick={deleteAccount}>
+            <button className="danger" onClick={() => openDialog({ kind: 'delete' })}>
               Delete account
             </button>
           </p>
+
+          {dialog?.kind === 'role' && (
+            <ConfirmDialog
+              key="role"
+              title={dialog.role === 'admin' ? `Make ${user.username} an admin?` : `Make ${user.username} a regular user?`}
+              confirmLabel={dialog.role === 'admin' ? 'Make admin' : 'Make regular user'}
+              focusCancel={false}
+              busy={busy}
+              onCancel={() => setDialog(null)}
+              onConfirm={(form) => changeRole(dialog.role, form.get('password'))}
+            >
+              <p>
+                {dialog.role === 'admin'
+                  ? 'Admins can change the satellite catalog and manage every user.'
+                  : user.id === me.id
+                    ? "You'll lose admin access yourself, and another admin will have to give it back."
+                    : `${user.username} will lose admin access.`}
+              </p>
+              <label>
+                Re-type your password to confirm
+                <input name="password" type="password" autoComplete="current-password" required data-autofocus />
+              </label>
+              {dialogError && (
+                <p className="error" role="alert">
+                  {dialogError}
+                </p>
+              )}
+            </ConfirmDialog>
+          )}
+          {dialog?.kind === 'delete' && (
+            <ConfirmDialog
+              key="delete"
+              title={`Delete ${user.username}'s account?`}
+              confirmLabel="Continue"
+              onCancel={() => setDialog(null)}
+              onConfirm={() => openDialog({ kind: 'deleteForSure' })}
+            >
+              <p>
+                Their {user.locations.length} location{user.locations.length === 1 ? '' : 's'} and watchlists will be deleted
+                too.
+              </p>
+            </ConfirmDialog>
+          )}
+          {dialog?.kind === 'deleteForSure' && (
+            // The second confirmation swaps the buttons, so clicking twice in the same spot doesn't delete.
+            <ConfirmDialog
+              key="deleteForSure"
+              title="Delete permanently?"
+              confirmLabel="Delete permanently"
+              danger
+              cancelFirst={false}
+              busy={busy}
+              onCancel={() => setDialog(null)}
+              onConfirm={deleteAccount}
+            >
+              <p>
+                <b>{user.username}</b>
+                {user.id === me.id && ' (that is you)'} and all their data will be removed. This can't be undone.
+              </p>
+              {dialogError && (
+                <p className="error" role="alert">
+                  {dialogError}
+                </p>
+              )}
+            </ConfirmDialog>
+          )}
 
           <h3>Locations ({user.locations.length})</h3>
           {user.locations.length === 0 ? (

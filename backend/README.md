@@ -136,7 +136,7 @@ All admin-only:
 | `GET /admin/stats` | Counts of users, admins, satellites and places, plus the last import of each CelesTrak group |
 | `GET /admin/users?search=` | Every user with their number of locations; `search` matches username or email |
 | `GET /admin/users/{id}` | One user with their locations |
-| `PATCH /admin/users/{id}` `{"role": "admin"}` or `{"role": "user"}` | Change the role |
+| `PATCH /admin/users/{id}` `{"role": "admin" or "user", "password": "…"}` | Change the role. `password` is the acting admin's **own** password, re-typed to confirm; wrong → 403 `wrong_password` (not 401, so the admin isn't logged out) |
 | `DELETE /admin/users/{id}` | Delete the account; their locations and watchlists go too |
 
 The last admin can't be demoted or deleted (409 `last_admin`), so nobody is locked out.
@@ -199,7 +199,7 @@ Reset to the seed data first (`alembic downgrade base`, then `alembic upgrade he
 | 39 | `GET /places/nearest?latitude=43.21&longitude=76.90` | 200, the nearest place (Almaty) with `distance_km` |
 | 40 | As alice: `GET /admin/users` | 403 `admin_only` |
 | 41 | As admin: `GET /admin/users`, then `GET /admin/users/{alice's id}` | 200, users with `location_count`; alice with her locations |
-| 42 | As admin, the only admin: `PATCH /admin/users/1` `{"role": "user"}` | 409 `last_admin` |
+| 42 | As admin, the only admin: `PATCH /admin/users/1` `{"role": "user", "password": "<your password>"}` | 409 `last_admin`; with a wrong password: 403 `wrong_password` |
 | 43 | As admin: `DELETE /admin/users/{alice's id}` | 204; her locations are gone too |
 
 The first ISS pass in row 15 rises at 15:59:26 UTC in the SW and peaks at 61.5°. This matches satellite.js on the same data.

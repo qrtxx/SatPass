@@ -3,9 +3,10 @@
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.errors import Conflict, NotFound
+from app.errors import Conflict, Forbidden, NotFound
 from app.models import CatalogImportModel, ObserverModel, PlaceModel, SatelliteModel, UserModel
 from app.schemas import AdminStats, AdminUser, AdminUserDetail, ImportSummary, Observer
+from app.security import verify_password
 
 
 def _count(db: Session, query) -> int:
@@ -53,6 +54,13 @@ def _check_not_last_admin(db: Session, user: UserModel) -> None:
     admins = db.scalars(select(UserModel.id).where(UserModel.role == "admin").with_for_update()).all()
     if user.role == "admin" and len(admins) == 1:
         raise Conflict("last_admin", "This is the only administrator; make someone else an admin first")
+
+
+def confirm_password(actor: UserModel, password: str) -> None:
+    """Sensitive changes ask the admin to re-type their own password, in case someone else is at their screen.
+    403, not 401: a wrong password here must not log the admin out."""
+    if not verify_password(password, actor.password_hash):
+        raise Forbidden("wrong_password", "That password is wrong")
 
 
 def set_role(db: Session, user_id: int, role: str) -> UserModel:
