@@ -70,14 +70,15 @@ def load_places(db: Session, place_zips: list[Path], regions_txt: Path) -> int:
 
 def search_places(db: Session, search: str, limit: int) -> list[PlaceModel]:
     """Names starting with the text, in the local or Latin spelling, ignoring case.
-    Exact names first, then bigger places (many villages have population 0 = unknown), then alphabetical."""
+    Bigger places first; an exact name breaks ties, then alphabetical. (Exact-first buried Kabul under hundreds
+    of villages called "Ka" on the full data: many villages have population 0 = unknown.)"""
     word = search.strip().lower()
     pattern = word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"  # the user's % and _ are literal
     name, ascii_name = func.lower(PlaceModel.name), func.lower(PlaceModel.ascii_name)
     query = (
         select(PlaceModel)
         .where(or_(ascii_name.like(pattern, escape="\\"), name.like(pattern, escape="\\")))
-        .order_by(or_(name == word, ascii_name == word).desc(), PlaceModel.population.desc(), PlaceModel.ascii_name)
+        .order_by(PlaceModel.population.desc(), or_(name == word, ascii_name == word).desc(), PlaceModel.ascii_name)
         .limit(limit)
     )
     return list(db.scalars(query))

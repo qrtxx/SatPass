@@ -74,7 +74,7 @@ def test_load_places_from_the_small_files_skips_duplicates(db, tmp_path):
     assert sorted(p.name for p in db.query(PlaceModel)) == ["Almaty", "Astana", "Paris", "Tiny Aul"]
 
 
-def test_search_ranks_exact_name_then_population(places):
+def test_search_ranks_bigger_places_first(places):
     names = [(p["name"], p["region"]) for p in client.get("/places", params={"search": "ast"}).json()]
     assert names == [("Astana", "Astana Qalasy"), ("Astrakhan'", "Astrakhan"), ("Astana", "Pavlodar")]
     exact = client.get("/places", params={"search": "Astana"}).json()
@@ -133,3 +133,15 @@ def test_load_places_chooses_its_files(tmp_path, monkeypatch, present, full, exp
 def test_blank_or_padded_short_search_is_rejected(places, search):
     # Otherwise "  " becomes the pattern "%" and sorts the whole table.
     assert client.get("/places", params={"search": search}).status_code == 422
+
+
+def test_tiny_exact_matches_do_not_bury_big_places(db):
+    # On the real data, "ka" matched hundreds of villages called exactly "Ka" (population unknown) before Kabul.
+    db.add_all([
+        PlaceModel(id=11, name="Ka", ascii_name="Ka", country_code="NG", latitude=9.0, longitude=8.0, population=0),
+        PlaceModel(id=12, name="Kabul", ascii_name="Kabul", country_code="AF", latitude=34.5, longitude=69.2, population=4434550),
+        PlaceModel(id=13, name="Kaba", ascii_name="Kaba", country_code="HU", latitude=47.4, longitude=21.3, population=0),
+    ])
+    db.flush()
+    names = [p["name"] for p in client.get("/places", params={"search": "ka"}).json()]
+    assert names == ["Kabul", "Ka", "Kaba"]  # biggest first; among unknown sizes the exact name wins
